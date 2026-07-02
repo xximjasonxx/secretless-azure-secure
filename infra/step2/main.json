@@ -1,0 +1,637 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "10734659251565240320"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for new network resources."
+      }
+    },
+    "appName": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing App Service name."
+      }
+    },
+    "keyVaultName": {
+      "type": "string",
+      "defaultValue": "[toLower(format('kv{0}', take(uniqueString(resourceGroup().id, parameters('appName'), 'step2kv'), 22)))]",
+      "metadata": {
+        "description": "Key Vault name created during step2."
+      }
+    },
+    "storageAccountName": {
+      "type": "string",
+      "metadata": {
+        "description": "Existing Storage account name."
+      }
+    },
+    "assetServiceApiKeySecretValue": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Asset service API key value copied into Key Vault during step2."
+      }
+    },
+    "keyVaultAdminObjectId": {
+      "type": "string",
+      "defaultValue": "61a37498-9ab6-43d2-b70f-706fd58274e7",
+      "metadata": {
+        "description": "Object ID granted Key Vault Administrator on the step2 Key Vault."
+      }
+    },
+    "keyVaultAdminPrincipalType": {
+      "type": "string",
+      "defaultValue": "User",
+      "metadata": {
+        "description": "Principal type for the Key Vault Administrator assignment."
+      }
+    },
+    "appPrincipalObjectId": {
+      "type": "string",
+      "metadata": {
+        "description": "App Service managed identity object ID granted Key Vault secret read access."
+      }
+    },
+    "assetServiceApiKeySecretName": {
+      "type": "string",
+      "defaultValue": "AssetServiceApiKey",
+      "metadata": {
+        "description": "Key Vault secret name used by the app."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Optional tags for step2 resources."
+      }
+    }
+  },
+  "variables": {
+    "normalizedTags": "[union(parameters('tags'), createObject('SecurityControl', 'Ignore'))]",
+    "vnetName": "[format('vnet-step2-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
+    "appGatewayName": "[format('agw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
+    "appGatewaySubnetName": "snet-appgw",
+    "privateEndpointSubnetName": "snet-pe",
+    "bastionSubnetName": "AzureBastionSubnet",
+    "appIntegrationSubnetName": "snet-app",
+    "keyVaultAdministratorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')]",
+    "keyVaultSecretsUserRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2024-05-01",
+      "name": "[variables('vnetName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "10.80.0.0/16"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('appGatewaySubnetName')]",
+            "properties": {
+              "addressPrefix": "10.80.1.0/24"
+            }
+          },
+          {
+            "name": "[variables('privateEndpointSubnetName')]",
+            "properties": {
+              "addressPrefix": "10.80.2.0/24",
+              "privateEndpointNetworkPolicies": "Disabled"
+            }
+          },
+          {
+            "name": "[variables('bastionSubnetName')]",
+            "properties": {
+              "addressPrefix": "10.80.3.0/26"
+            }
+          },
+          {
+            "name": "[variables('appIntegrationSubnetName')]",
+            "properties": {
+              "addressPrefix": "10.80.4.0/24",
+              "delegations": [
+                {
+                  "name": "appservice-delegation",
+                  "properties": {
+                    "serviceName": "Microsoft.Web/serverFarms"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2024-05-01",
+      "name": "[format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2024-05-01",
+      "name": "[format('pip-bastion-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      }
+    },
+    {
+      "type": "Microsoft.Network/applicationGateways",
+      "apiVersion": "2024-05-01",
+      "name": "[variables('appGatewayName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "sku": {
+        "name": "WAF_v2",
+        "tier": "WAF_v2",
+        "capacity": 1
+      },
+      "properties": {
+        "gatewayIPConfigurations": [
+          {
+            "name": "appGatewayIpConfig",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('appGatewaySubnetName'))]"
+              }
+            }
+          }
+        ],
+        "frontendIPConfigurations": [
+          {
+            "name": "publicFrontend",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]"
+              }
+            }
+          }
+        ],
+        "frontendPorts": [
+          {
+            "name": "port80",
+            "properties": {
+              "port": 80
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "appServicePool",
+            "properties": {
+              "backendAddresses": [
+                {
+                  "fqdn": "[format('{0}.azurewebsites.net', parameters('appName'))]"
+                }
+              ]
+            }
+          }
+        ],
+        "probes": [
+          {
+            "name": "appHealthProbe",
+            "properties": {
+              "protocol": "Https",
+              "path": "/health",
+              "interval": 30,
+              "timeout": 30,
+              "unhealthyThreshold": 3,
+              "pickHostNameFromBackendHttpSettings": true,
+              "match": {
+                "statusCodes": [
+                  "200-399"
+                ]
+              }
+            }
+          }
+        ],
+        "backendHttpSettingsCollection": [
+          {
+            "name": "httpsSettings",
+            "properties": {
+              "port": 443,
+              "protocol": "Https",
+              "requestTimeout": 60,
+              "pickHostNameFromBackendAddress": true,
+              "probe": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/probes', variables('appGatewayName'), 'appHealthProbe')]"
+              }
+            }
+          }
+        ],
+        "httpListeners": [
+          {
+            "name": "listener80",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', variables('appGatewayName'), 'publicFrontend')]"
+              },
+              "frontendPort": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendPorts', variables('appGatewayName'), 'port80')]"
+              },
+              "protocol": "Http"
+            }
+          }
+        ],
+        "requestRoutingRules": [
+          {
+            "name": "defaultRoute",
+            "properties": {
+              "ruleType": "Basic",
+              "priority": 100,
+              "httpListener": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/httpListeners', variables('appGatewayName'), 'listener80')]"
+              },
+              "backendAddressPool": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/backendAddressPools', variables('appGatewayName'), 'appServicePool')]"
+              },
+              "backendHttpSettings": {
+                "id": "[resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', variables('appGatewayName'), 'httpsSettings')]"
+              }
+            }
+          }
+        ],
+        "webApplicationFirewallConfiguration": {
+          "enabled": true,
+          "firewallMode": "Prevention",
+          "ruleSetType": "OWASP",
+          "ruleSetVersion": "3.2"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/bastionHosts",
+      "apiVersion": "2024-05-01",
+      "name": "[format('bas-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "ipConfigurations": [
+          {
+            "name": "bastionIpConfig",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('bastionSubnetName'))]"
+              },
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-bastion-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]"
+              }
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-bastion-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2024-06-01",
+      "name": "privatelink.azurewebsites.net",
+      "location": "global",
+      "tags": "[variables('normalizedTags')]"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2024-06-01",
+      "name": "privatelink.vaultcore.azure.net",
+      "location": "global",
+      "tags": "[variables('normalizedTags')]"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones",
+      "apiVersion": "2024-06-01",
+      "name": "[format('privatelink.table.{0}', environment().suffixes.storage)]",
+      "location": "global",
+      "tags": "[variables('normalizedTags')]"
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2024-06-01",
+      "name": "[format('{0}/{1}', 'privatelink.azurewebsites.net', format('link-{0}', variables('vnetName')))]",
+      "location": "global",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2024-06-01",
+      "name": "[format('{0}/{1}', 'privatelink.vaultcore.azure.net', format('link-{0}', variables('vnetName')))]",
+      "location": "global",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+      "apiVersion": "2024-06-01",
+      "name": "[format('{0}/{1}', format('privatelink.table.{0}', environment().suffixes.storage), format('link-{0}', variables('vnetName')))]",
+      "location": "global",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "registrationEnabled": false,
+        "virtualNetwork": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.table.{0}', environment().suffixes.storage))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults",
+      "apiVersion": "2023-07-01",
+      "name": "[parameters('keyVaultName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "tenantId": "[subscription().tenantId]",
+        "sku": {
+          "family": "A",
+          "name": "standard"
+        },
+        "enableRbacAuthorization": true,
+        "enabledForDeployment": false,
+        "enabledForDiskEncryption": false,
+        "enabledForTemplateDeployment": false,
+        "softDeleteRetentionInDays": 7,
+        "publicNetworkAccess": "Enabled",
+        "networkAcls": {
+          "defaultAction": "Allow",
+          "bypass": "AzureServices",
+          "ipRules": [],
+          "virtualNetworkRules": []
+        }
+      }
+    },
+    {
+      "type": "Microsoft.KeyVault/vaults/secrets",
+      "apiVersion": "2023-07-01",
+      "name": "[format('{0}/{1}', parameters('keyVaultName'), parameters('assetServiceApiKeySecretName'))]",
+      "properties": {
+        "value": "[parameters('assetServiceApiKeySecretValue')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('keyVaultAdminObjectId'), variables('keyVaultAdministratorRoleDefinitionId'))]",
+      "properties": {
+        "roleDefinitionId": "[variables('keyVaultAdministratorRoleDefinitionId')]",
+        "principalId": "[parameters('keyVaultAdminObjectId')]",
+        "principalType": "[parameters('keyVaultAdminPrincipalType')]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('appPrincipalObjectId'), variables('keyVaultSecretsUserRoleDefinitionId'))]",
+      "properties": {
+        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleDefinitionId')]",
+        "principalId": "[parameters('appPrincipalObjectId')]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/networkConfig",
+      "apiVersion": "2023-12-01",
+      "name": "[format('{0}/virtualNetwork', parameters('appName'))]",
+      "properties": {
+        "subnetResourceId": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('appIntegrationSubnetName'))]",
+        "swiftSupported": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2024-05-01",
+      "name": "[format('pe-app-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('privateEndpointSubnetName'))]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "app-connection",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Web/sites', parameters('appName'))]",
+              "groupIds": [
+                "sites"
+              ],
+              "requestMessage": "Step2 private endpoint for App Service."
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2024-05-01",
+      "name": "[format('pe-kv-{0}', take(uniqueString(resourceGroup().id, parameters('keyVaultName')), 6))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('privateEndpointSubnetName'))]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "kv-connection",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+              "groupIds": [
+                "vault"
+              ],
+              "requestMessage": "Step2 private endpoint for Key Vault."
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2024-05-01",
+      "name": "[format('pe-table-{0}', take(uniqueString(resourceGroup().id, parameters('storageAccountName')), 6))]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "subnet": {
+          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('privateEndpointSubnetName'))]"
+        },
+        "privateLinkServiceConnections": [
+          {
+            "name": "table-connection",
+            "properties": {
+              "privateLinkServiceId": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
+              "groupIds": [
+                "table"
+              ],
+              "requestMessage": "Step2 private endpoint for Storage Table."
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}/{1}', format('pe-app-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)), 'default')]",
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "app-zone",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]",
+        "[resourceId('Microsoft.Network/privateEndpoints', format('pe-app-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]",
+        "[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', 'privatelink.azurewebsites.net', format('link-{0}', variables('vnetName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}/{1}', format('pe-kv-{0}', take(uniqueString(resourceGroup().id, parameters('keyVaultName')), 6)), 'default')]",
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "kv-zone",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]",
+        "[resourceId('Microsoft.Network/privateEndpoints', format('pe-kv-{0}', take(uniqueString(resourceGroup().id, parameters('keyVaultName')), 6)))]",
+        "[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', 'privatelink.vaultcore.azure.net', format('link-{0}', variables('vnetName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
+      "apiVersion": "2024-05-01",
+      "name": "[format('{0}/{1}', format('pe-table-{0}', take(uniqueString(resourceGroup().id, parameters('storageAccountName')), 6)), 'default')]",
+      "properties": {
+        "privateDnsZoneConfigs": [
+          {
+            "name": "table-zone",
+            "properties": {
+              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.table.{0}', environment().suffixes.storage))]"
+            }
+          }
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/privateDnsZones', format('privatelink.table.{0}', environment().suffixes.storage))]",
+        "[resourceId('Microsoft.Network/privateEndpoints', format('pe-table-{0}', take(uniqueString(resourceGroup().id, parameters('storageAccountName')), 6)))]",
+        "[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', format('privatelink.table.{0}', environment().suffixes.storage), format('link-{0}', variables('vnetName')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "applicationGatewayPublicIp": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))), '2024-05-01').ipAddress]"
+    },
+    "applicationGatewayUrl": {
+      "type": "string",
+      "value": "[format('http://{0}', reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))), '2024-05-01').ipAddress)]"
+    },
+    "step2VnetName": {
+      "type": "string",
+      "value": "[variables('vnetName')]"
+    },
+    "keyVaultName": {
+      "type": "string",
+      "value": "[parameters('keyVaultName')]"
+    },
+    "keyVaultUri": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), '2023-07-01').vaultUri]"
+    }
+  }
+}

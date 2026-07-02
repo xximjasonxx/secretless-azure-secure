@@ -1,0 +1,95 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "16911304773494799960"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for the manual-approval private endpoint."
+      }
+    },
+    "privateEndpointName": {
+      "type": "string",
+      "defaultValue": "pe-manual-pending-demo",
+      "metadata": {
+        "description": "Name of the private endpoint to create for the pending approval demo."
+      }
+    },
+    "peSubnetResourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Subnet resource ID where the private endpoint NIC is created (typically snet-pe)."
+      }
+    },
+    "targetResourceId": {
+      "type": "string",
+      "metadata": {
+        "description": "Target PaaS resource ID to request connection to (for example a storage account or key vault)."
+      }
+    },
+    "groupId": {
+      "type": "string",
+      "defaultValue": "blob",
+      "metadata": {
+        "description": "Group ID on the target resource. Use \"blob\" for Storage Blob or \"vault\" for Key Vault."
+      }
+    },
+    "requestMessage": {
+      "type": "string",
+      "defaultValue": "Manual approval requested for conference demo (simulate cross-team consumer).",
+      "metadata": {
+        "description": "Message shown to the resource owner during manual approval."
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Optional resource tags."
+      }
+    }
+  },
+  "variables": {
+    "normalizedTags": "[union(parameters('tags'), createObject('SecurityControl', 'Ignore'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/privateEndpoints",
+      "apiVersion": "2024-05-01",
+      "name": "[parameters('privateEndpointName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('normalizedTags')]",
+      "properties": {
+        "subnet": {
+          "id": "[parameters('peSubnetResourceId')]"
+        },
+        "manualPrivateLinkServiceConnections": [
+          {
+            "name": "[format('manual-{0}-connection', parameters('groupId'))]",
+            "properties": {
+              "privateLinkServiceId": "[parameters('targetResourceId')]",
+              "groupIds": [
+                "[parameters('groupId')]"
+              ],
+              "requestMessage": "[parameters('requestMessage')]"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "manualPrivateEndpointId": {
+      "type": "string",
+      "value": "[resourceId('Microsoft.Network/privateEndpoints', parameters('privateEndpointName'))]"
+    }
+  }
+}

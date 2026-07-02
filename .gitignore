@@ -1,0 +1,32 @@
+# OS/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Azure Developer CLI local state
+.azure/
+
+# Secrets/local env files
+.env
+.env.*
+!.env.example
+
+# .NET build output
+bin/
+obj/
+*.user
+*.suo
+
+# Python cache/venv
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Logs/temp
+*.log
+tmp/
+temp/

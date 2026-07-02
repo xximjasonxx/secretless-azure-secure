@@ -1,0 +1,13 @@
+name: secretless-azure-secure
+metadata:
+  template: secretless-conference-demo
+
+# Bicep is the default IaC provider for azd.
+infra:
+  path: infra/start
+
+services:
+  api:
+    project: ./src
+    host: appservice
+    language: dotnet

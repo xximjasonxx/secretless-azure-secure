@@ -1,0 +1,479 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2018-05-01/subscriptionDeploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.43.8.12551",
+      "templateHash": "2504344094239512488"
+    }
+  },
+  "parameters": {
+    "environmentName": {
+      "type": "string",
+      "metadata": {
+        "description": "azd environment name. Used for deterministic naming and tagging."
+      }
+    },
+    "location": {
+      "type": "string",
+      "metadata": {
+        "description": "Primary Azure region for this environment."
+      }
+    },
+    "existingResourceGroupName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Optional existing resource group name to deploy into. Leave empty to create a deterministic RG name."
+      }
+    },
+    "assetServiceApiUrl": {
+      "type": "string",
+      "defaultValue": "https://assets.contoso.invalid/api/assets",
+      "metadata": {
+        "description": "External asset service URL. 404 responses are tolerated by the app for demo mode."
+      }
+    },
+    "assetServiceApiKey": {
+      "type": "securestring",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Insecure initial-stage API key stored directly in app settings."
+      }
+    },
+    "commentsTableName": {
+      "type": "string",
+      "defaultValue": "assetcomments",
+      "metadata": {
+        "description": "Table name for asset comments."
+      }
+    },
+    "ticketsTableName": {
+      "type": "string",
+      "defaultValue": "assettickets",
+      "metadata": {
+        "description": "Table name for asset tickets."
+      }
+    }
+  },
+  "variables": {
+    "token": "[toLower(take(uniqueString(subscription().id, parameters('environmentName'), parameters('location')), 6))]",
+    "resourceGroupName": "[if(empty(parameters('existingResourceGroupName')), format('rg-{0}-{1}', parameters('environmentName'), variables('token')), parameters('existingResourceGroupName'))]",
+    "resolvedAssetServiceApiKey": "[if(empty(parameters('assetServiceApiKey')), 'demo-insecure-api-key', parameters('assetServiceApiKey'))]",
+    "tags": {
+      "azd-env-name": "[parameters('environmentName')]",
+      "demo-scenario": "app-security-journey",
+      "demo-stage": "start",
+      "SecurityControl": "Ignore"
+    },
+    "appServicePlanName": "[format('asp-{0}-{1}', parameters('environmentName'), variables('token'))]",
+    "webAppName": "[format('app-{0}-{1}-{2}', parameters('environmentName'), variables('token'), take(uniqueString(subscription().id, variables('resourceGroupName'), 'web'), 5))]",
+    "storageAccountName": "[toLower(format('st{0}{1}', variables('token'), take(uniqueString(subscription().id, variables('resourceGroupName'), 'st'), 11)))]"
+  },
+  "resources": [
+    {
+      "condition": "[empty(parameters('existingResourceGroupName'))]",
+      "type": "Microsoft.Resources/resourceGroups",
+      "apiVersion": "2023-07-01",
+      "name": "[variables('resourceGroupName')]",
+      "location": "[parameters('location')]",
+      "tags": "[variables('tags')]"
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('storage-start-{0}', variables('token'))]",
+      "resourceGroup": "[variables('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('storageAccountName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "commentsTableName": {
+            "value": "[parameters('commentsTableName')]"
+          },
+          "ticketsTableName": {
+            "value": "[parameters('ticketsTableName')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "18018949225835531104"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage account name (globally unique, lowercase, 3-24 chars)."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Resource location."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Common tags."
+              }
+            },
+            "commentsTableName": {
+              "type": "string",
+              "metadata": {
+                "description": "Table name for asset comments."
+              }
+            },
+            "ticketsTableName": {
+              "type": "string",
+              "metadata": {
+                "description": "Table name for asset tickets."
+              }
+            }
+          },
+          "variables": {
+            "normalizedTags": "[union(parameters('tags'), createObject('SecurityControl', 'Ignore'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Storage/storageAccounts",
+              "apiVersion": "2023-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('normalizedTags')]",
+              "sku": {
+                "name": "Standard_LRS"
+              },
+              "kind": "StorageV2",
+              "properties": {
+                "accessTier": "Hot",
+                "minimumTlsVersion": "TLS1_2",
+                "supportsHttpsTrafficOnly": true,
+                "allowBlobPublicAccess": false,
+                "allowSharedKeyAccess": true,
+                "defaultToOAuthAuthentication": false,
+                "publicNetworkAccess": "Enabled",
+                "networkAcls": {
+                  "defaultAction": "Allow",
+                  "bypass": "AzureServices"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/tableServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', parameters('name'), 'default')]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('name'), 'default', parameters('commentsTableName'))]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/tableServices', parameters('name'), 'default')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('name'), 'default', parameters('ticketsTableName'))]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/tableServices', parameters('name'), 'default')]"
+              ]
+            }
+          ],
+          "outputs": {
+            "storageAccountId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+            },
+            "storageAccountName": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "storageTablesUri": {
+              "type": "string",
+              "value": "[format('https://{0}.table.{1}/', parameters('name'), environment().suffixes.storage)]"
+            },
+            "storageConnectionString": {
+              "type": "string",
+              "value": "[format('DefaultEndpointsProtocol=https;AccountName={0};EndpointSuffix={1};AccountKey={2}', parameters('name'), environment().suffixes.storage, listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('name')), '2023-05-01').keys[0].value)]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', variables('resourceGroupName'))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('app-start-{0}', variables('token'))]",
+      "resourceGroup": "[variables('resourceGroupName')]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "[variables('webAppName')]"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "serviceName": {
+            "value": "api"
+          },
+          "appServicePlanName": {
+            "value": "[variables('appServicePlanName')]"
+          },
+          "storageConnectionString": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('storage-start-{0}', variables('token'))), '2025-04-01').outputs.storageConnectionString.value]"
+          },
+          "commentsTableName": {
+            "value": "[parameters('commentsTableName')]"
+          },
+          "ticketsTableName": {
+            "value": "[parameters('ticketsTableName')]"
+          },
+          "assetServiceApiUrl": {
+            "value": "[parameters('assetServiceApiUrl')]"
+          },
+          "assetServiceApiKey": {
+            "value": "[variables('resolvedAssetServiceApiKey')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.43.8.12551",
+              "templateHash": "8388040363507481814"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "Web app name."
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Resource location."
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Common tags."
+              }
+            },
+            "serviceName": {
+              "type": "string",
+              "defaultValue": "api",
+              "metadata": {
+                "description": "azd service name for deployment wiring."
+              }
+            },
+            "appServicePlanName": {
+              "type": "string",
+              "metadata": {
+                "description": "App Service plan name."
+              }
+            },
+            "storageConnectionString": {
+              "type": "string",
+              "metadata": {
+                "description": "Storage connection string used in start stage."
+              }
+            },
+            "commentsTableName": {
+              "type": "string",
+              "metadata": {
+                "description": "Comments table name."
+              }
+            },
+            "ticketsTableName": {
+              "type": "string",
+              "metadata": {
+                "description": "Tickets table name."
+              }
+            },
+            "assetServiceApiUrl": {
+              "type": "string",
+              "metadata": {
+                "description": "Asset service URL."
+              }
+            },
+            "assetServiceApiKey": {
+              "type": "string",
+              "metadata": {
+                "description": "Asset service API key stored directly in app settings for start stage."
+              }
+            }
+          },
+          "variables": {
+            "normalizedTags": "[union(parameters('tags'), createObject('SecurityControl', 'Ignore'))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2023-12-01",
+              "name": "[parameters('appServicePlanName')]",
+              "location": "[parameters('location')]",
+              "tags": "[variables('normalizedTags')]",
+              "sku": {
+                "name": "P0v3",
+                "tier": "PremiumV3",
+                "size": "P0v3",
+                "capacity": 1
+              },
+              "kind": "linux",
+              "properties": {
+                "reserved": true
+              }
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2023-12-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "kind": "app,linux",
+              "tags": "[union(variables('normalizedTags'), createObject('azd-service-name', parameters('serviceName')))]",
+              "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]",
+                "httpsOnly": true,
+                "publicNetworkAccess": "Enabled",
+                "siteConfig": {
+                  "linuxFxVersion": "DOTNETCORE|8.0",
+                  "minTlsVersion": "1.2",
+                  "scmMinTlsVersion": "1.2",
+                  "ftpsState": "Disabled",
+                  "healthCheckPath": "/health",
+                  "appSettings": [
+                    {
+                      "name": "WEBSITES_ENABLE_APP_SERVICE_STORAGE",
+                      "value": "false"
+                    },
+                    {
+                      "name": "APP_SECURITY_STAGE",
+                      "value": "start"
+                    },
+                    {
+                      "name": "ASSET_SERVICE_API_URL",
+                      "value": "[parameters('assetServiceApiUrl')]"
+                    },
+                    {
+                      "name": "ASSET_SERVICE_API_KEY",
+                      "value": "[parameters('assetServiceApiKey')]"
+                    },
+                    {
+                      "name": "STORAGE_CONNECTION_STRING",
+                      "value": "[parameters('storageConnectionString')]"
+                    },
+                    {
+                      "name": "STORAGE_TABLES_URI",
+                      "value": ""
+                    },
+                    {
+                      "name": "ASSET_COMMENTS_TABLE",
+                      "value": "[parameters('commentsTableName')]"
+                    },
+                    {
+                      "name": "ASSET_TICKETS_TABLE",
+                      "value": "[parameters('ticketsTableName')]"
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/serverfarms', parameters('appServicePlanName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "webAppName": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "appUrl": {
+              "type": "string",
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', parameters('name')), '2023-12-01').defaultHostName)]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', variables('resourceGroupName'))]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('storage-start-{0}', variables('token')))]"
+      ]
+    }
+  ],
+  "outputs": {
+    "AZURE_RESOURCE_GROUP": {
+      "type": "string",
+      "value": "[variables('resourceGroupName')]"
+    },
+    "AZURE_LOCATION": {
+      "type": "string",
+      "value": "[parameters('location')]"
+    },
+    "AZURE_WEBAPP_NAME": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('app-start-{0}', variables('token'))), '2025-04-01').outputs.webAppName.value]"
+    },
+    "API_URL": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('app-start-{0}', variables('token'))), '2025-04-01').outputs.appUrl.value]"
+    },
+    "AZURE_STORAGE_ACCOUNT_NAME": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('storage-start-{0}', variables('token'))), '2025-04-01').outputs.storageAccountName.value]"
+    },
+    "STORAGE_TABLES_URI": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('storage-start-{0}', variables('token'))), '2025-04-01').outputs.storageTablesUri.value]"
+    },
+    "ASSET_COMMENTS_TABLE": {
+      "type": "string",
+      "value": "[parameters('commentsTableName')]"
+    },
+    "ASSET_TICKETS_TABLE": {
+      "type": "string",
+      "value": "[parameters('ticketsTableName')]"
+    }
+  }
+}
