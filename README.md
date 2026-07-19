@@ -61,8 +61,9 @@ azd auth login
 ## Stage 0: Initial standup (`azd up`)
 
 `infra/start/apply.sh` always uses the currently active `az account` subscription context.
+If it needs to create a missing configured resource group, location defaults to `swedencentral` unless overridden by `--location` or `AZURE_LOCATION`.
 
-Use existing RG:
+Use configured RG (auto-created if it does not exist in the active subscription):
 
 ```bash
 azd env set AZURE_RESOURCE_GROUP rg-securetalk-poc-swc-mx01
