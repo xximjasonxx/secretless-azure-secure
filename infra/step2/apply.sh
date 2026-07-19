@@ -1,17 +1,73 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+STAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$STAGE_DIR/../.." && pwd)"
 
 get_env_value() {
   local key="$1"
-  azd env get-value "$key" --cwd "$ROOT_DIR"
+  azd env get-value "$key" --cwd "$STAGE_DIR"
 }
 
-RG="${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP)}"
-APP_NAME="${AZURE_WEBAPP_NAME:-$(get_env_value AZURE_WEBAPP_NAME)}"
-STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-$(get_env_value AZURE_STORAGE_ACCOUNT_NAME)}"
-LOCATION="${AZURE_LOCATION:-$(get_env_value AZURE_LOCATION)}"
+discover_webapp_name() {
+  local rg="$1"
+  local count
+  count="$(az webapp list --resource-group "$rg" --query "length(@)" -o tsv)"
+
+  if [[ "$count" == "1" ]]; then
+    az webapp list --resource-group "$rg" --query "[0].name" -o tsv
+    return
+  fi
+
+  if [[ "$count" == "0" ]]; then
+    echo "ERROR: No App Service found in resource group '$rg'. Run previous stages first."
+    exit 1
+  fi
+
+  echo "ERROR: Multiple App Services found in '$rg'. Set AZURE_WEBAPP_NAME in this stage environment."
+  exit 1
+}
+
+discover_storage_name() {
+  local rg="$1"
+  local count
+  count="$(az storage account list --resource-group "$rg" --query "length(@)" -o tsv)"
+
+  if [[ "$count" == "1" ]]; then
+    az storage account list --resource-group "$rg" --query "[0].name" -o tsv
+    return
+  fi
+
+  if [[ "$count" == "0" ]]; then
+    echo "ERROR: No Storage account found in resource group '$rg'. Run previous stages first."
+    exit 1
+  fi
+
+  echo "ERROR: Multiple Storage accounts found in '$rg'. Set AZURE_STORAGE_ACCOUNT_NAME in this stage environment."
+  exit 1
+}
+
+RG="${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP 2>/dev/null || true)}"
+if [[ -z "$RG" ]]; then
+  echo "ERROR: AZURE_RESOURCE_GROUP is not set. Run 'azd up' from this folder first."
+  exit 1
+fi
+
+APP_NAME="${AZURE_WEBAPP_NAME:-$(get_env_value AZURE_WEBAPP_NAME 2>/dev/null || true)}"
+if [[ -z "$APP_NAME" ]]; then
+  APP_NAME="$(discover_webapp_name "$RG")"
+fi
+
+STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-$(get_env_value AZURE_STORAGE_ACCOUNT_NAME 2>/dev/null || true)}"
+if [[ -z "$STORAGE_NAME" ]]; then
+  STORAGE_NAME="$(discover_storage_name "$RG")"
+fi
+
+LOCATION="${AZURE_LOCATION:-$(get_env_value AZURE_LOCATION 2>/dev/null || true)}"
+if [[ -z "$LOCATION" ]]; then
+  LOCATION="$(az group show --name "$RG" --query location -o tsv)"
+fi
+
 KEYVAULT_NAME="${AZURE_KEY_VAULT_NAME:-$(get_env_value AZURE_KEY_VAULT_NAME 2>/dev/null || true)}"
 KEYVAULT_ADMIN_OBJECT_ID="${KEYVAULT_ADMIN_OBJECT_ID:-61a37498-9ab6-43d2-b70f-706fd58274e7}"
 KEYVAULT_ADMIN_PRINCIPAL_TYPE="${KEYVAULT_ADMIN_PRINCIPAL_TYPE:-User}"
@@ -72,7 +128,7 @@ fi
 
 DEPLOY_OUTPUTS="$(az deployment group create \
   --resource-group "$RG" \
-  --template-file "$ROOT_DIR/infra/step2/main.bicep" \
+  --template-file "$REPO_ROOT/infra/step2/main.bicep" \
   --parameters "${DEPLOY_PARAMS[@]}" \
   --query "[properties.outputs.keyVaultName.value,properties.outputs.keyVaultUri.value]" \
   --only-show-errors \
@@ -123,10 +179,12 @@ APP_GATEWAY_IP="$(az network public-ip list \
 
 echo "Step2 complete."
 if [[ -n "$APP_GATEWAY_IP" ]]; then
-  azd env set APP_GATEWAY_URL "http://${APP_GATEWAY_IP}" --cwd "$ROOT_DIR" >/dev/null
+  azd env set APP_GATEWAY_URL "http://${APP_GATEWAY_IP}" --cwd "$STAGE_DIR" >/dev/null
   echo "Application Gateway URL: http://${APP_GATEWAY_IP}"
 fi
 
-azd env set AZURE_KEY_VAULT_NAME "$KEYVAULT_NAME" --cwd "$ROOT_DIR" >/dev/null
-azd env set KEYVAULT_URI "$KEYVAULT_URI" --cwd "$ROOT_DIR" >/dev/null
+azd env set AZURE_WEBAPP_NAME "$APP_NAME" --cwd "$STAGE_DIR" >/dev/null
+azd env set AZURE_STORAGE_ACCOUNT_NAME "$STORAGE_NAME" --cwd "$STAGE_DIR" >/dev/null
+azd env set AZURE_KEY_VAULT_NAME "$KEYVAULT_NAME" --cwd "$STAGE_DIR" >/dev/null
+azd env set KEYVAULT_URI "$KEYVAULT_URI" --cwd "$STAGE_DIR" >/dev/null
 echo "Key Vault created: $KEYVAULT_NAME"

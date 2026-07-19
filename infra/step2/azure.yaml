@@ -1,0 +1,14 @@
+name: secretless-azure-secure-step2
+metadata:
+  template: secretless-conference-demo
+
+infra:
+  path: ./azd
+
+hooks:
+  preprovision:
+    shell: sh
+    run: ../sync-from-start-env.sh
+  postprovision:
+    shell: sh
+    run: ./apply.sh

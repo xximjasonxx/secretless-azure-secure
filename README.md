@@ -29,19 +29,26 @@ The custom asset service is treated as an external dependency. A `404` from that
 ```text
 infra/
 ├── start/
+│   ├── azure.yaml
 │   ├── main.bicep
 │   ├── main.parameters.json
 │   └── modules/
 │       ├── app-start.bicep
 │       └── storage-start.bicep
 ├── step1/
-│   └── apply.sh
+│   ├── azure.yaml
+│   ├── apply.sh
+│   └── azd/
+│       ├── main.bicep
+│       └── main.parameters.json
 └── step2/
+    ├── azure.yaml
     ├── apply.sh
-    └── main.bicep
+    ├── main.bicep
+    └── azd/
+        ├── main.bicep
+        └── main.parameters.json
 ```
-
-`azure.yaml` points azd infra to `infra/start`.
 
 ---
 
@@ -56,37 +63,44 @@ az login
 azd auth login
 ```
 
-Run all commands below from the repository root.
+Each stage is its own azd project. Run `azd up` from the stage folder.
 
 ---
 
 ## Course run order
 
-1. Stage 0 baseline:
+Use the same azd environment name in every stage folder (for example: `demo`).
+`step1` and `step2` automatically sync resource group and location from `infra/start` for that environment.
+
+1. Stage 1 baseline (`start`):
 
 ```bash
+cd infra/start
 azd up
 ```
 
-2. Stage 1 hardening:
+2. Stage 2 hardening (`step1`):
 
 ```bash
-./infra/step1/apply.sh
+cd infra/step1
+azd up
 ```
 
-3. Stage 2 private networking:
+3. Stage 3 private networking (`step2`):
 
 ```bash
-./infra/step2/apply.sh
+cd infra/step2
+azd up
 ```
 
 ---
 
-## Stage 0: Initial standup (`azd up`)
+## Stage 1: Initial standup (`start`)
 
 Run:
 
 ```bash
+cd infra/start
 azd up
 ```
 
@@ -115,13 +129,16 @@ When overriding `AZURE_RESOURCE_GROUP`, use an RG in `swedencentral` or update `
 
 ---
 
-## Stage 1: Managed Identity + RBAC for storage
+## Stage 2: Managed Identity + RBAC for storage
 
 Run:
 
 ```bash
-./infra/step1/apply.sh
+cd infra/step1
+azd up
 ```
+
+`azd up` first syncs RG/location from `infra/start`, then runs the stage transition hook (`apply.sh`) after provisioning.
 
 What it changes:
 
@@ -132,13 +149,16 @@ What it changes:
 
 ---
 
-## Stage 2: Private networking
+## Stage 3: Private networking
 
 Run:
 
 ```bash
-./infra/step2/apply.sh
+cd infra/step2
+azd up
 ```
+
+`azd up` first syncs RG/location from `infra/start`, then runs the stage transition hook (`apply.sh`) after provisioning.
 
 What it deploys and applies:
 
@@ -169,6 +189,7 @@ What it deploys and applies:
 ## Validate app behavior
 
 ```bash
+cd infra/start
 API_URL=$(azd env get-value API_URL)
 curl -sS "$API_URL/health"
 ```
@@ -178,6 +199,8 @@ Expected: `ok`
 Open the web app:
 
 ```bash
+cd infra/start
+API_URL=$(azd env get-value API_URL)
 open "$API_URL"
 ```
 
@@ -186,6 +209,7 @@ If the external asset API is not implemented yet, search still works via local f
 After `step2`, validate through Application Gateway instead of direct App Service:
 
 ```bash
+cd infra/step2
 APP_GATEWAY_URL=$(azd env get-value APP_GATEWAY_URL)
 curl -sS "$APP_GATEWAY_URL/health"
 open "$APP_GATEWAY_URL"
@@ -196,9 +220,8 @@ open "$APP_GATEWAY_URL"
 ## Notes
 
 - This demo is intentionally staged; not all controls are enabled at `start`.
-- `azd up` only deploys the **start** template unless you change `azure.yaml`.
-- `step1` and `step2` are explicit operator-applied transitions for your presentation flow.
+- Each stage folder has its own `azure.yaml`; run `azd up` from that folder to advance the presentation.
 - If subscription policy forces `allowSharedKeyAccess=false`, the app falls back to in-memory comment/ticket persistence in `start` stage.
-- If re-running `step2` after Key Vault is already private, set `ASSET_SERVICE_API_KEY_VALUE=<actual-key>` before running `./infra/step2/apply.sh`.
+- If re-running `step2` after Key Vault is already private, run `azd env set ASSET_SERVICE_API_KEY_VALUE <actual-key>` in `infra/step2` before `azd up`.
 - `step2` currently exposes Application Gateway over HTTP for demo simplicity; add TLS listener/certificate before production use.
 - With current `step2` design, direct `azd deploy` to App Service is expected to fail unless you also private-link the `scm` endpoint.

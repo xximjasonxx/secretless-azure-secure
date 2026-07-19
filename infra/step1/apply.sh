@@ -1,16 +1,67 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+STAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 get_env_value() {
   local key="$1"
-  azd env get-value "$key" --cwd "$ROOT_DIR"
+  azd env get-value "$key" --cwd "$STAGE_DIR"
 }
 
-RG="${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP)}"
-APP_NAME="${AZURE_WEBAPP_NAME:-$(get_env_value AZURE_WEBAPP_NAME)}"
-STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-$(get_env_value AZURE_STORAGE_ACCOUNT_NAME)}"
+discover_webapp_name() {
+  local rg="$1"
+  local count
+  count="$(az webapp list --resource-group "$rg" --query "length(@)" -o tsv)"
+
+  if [[ "$count" == "1" ]]; then
+    az webapp list --resource-group "$rg" --query "[0].name" -o tsv
+    return
+  fi
+
+  if [[ "$count" == "0" ]]; then
+    echo "ERROR: No App Service found in resource group '$rg'. Run the start stage first."
+    exit 1
+  fi
+
+  echo "ERROR: Multiple App Services found in '$rg'. Set AZURE_WEBAPP_NAME in this stage environment."
+  exit 1
+}
+
+discover_storage_name() {
+  local rg="$1"
+  local count
+  count="$(az storage account list --resource-group "$rg" --query "length(@)" -o tsv)"
+
+  if [[ "$count" == "1" ]]; then
+    az storage account list --resource-group "$rg" --query "[0].name" -o tsv
+    return
+  fi
+
+  if [[ "$count" == "0" ]]; then
+    echo "ERROR: No Storage account found in resource group '$rg'. Run the start stage first."
+    exit 1
+  fi
+
+  echo "ERROR: Multiple Storage accounts found in '$rg'. Set AZURE_STORAGE_ACCOUNT_NAME in this stage environment."
+  exit 1
+}
+
+RG="${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP 2>/dev/null || true)}"
+if [[ -z "$RG" ]]; then
+  echo "ERROR: AZURE_RESOURCE_GROUP is not set. Run 'azd up' from this folder first."
+  exit 1
+fi
+
+APP_NAME="${AZURE_WEBAPP_NAME:-$(get_env_value AZURE_WEBAPP_NAME 2>/dev/null || true)}"
+if [[ -z "$APP_NAME" ]]; then
+  APP_NAME="$(discover_webapp_name "$RG")"
+fi
+
+STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-$(get_env_value AZURE_STORAGE_ACCOUNT_NAME 2>/dev/null || true)}"
+if [[ -z "$STORAGE_NAME" ]]; then
+  STORAGE_NAME="$(discover_storage_name "$RG")"
+fi
+
 COMMENTS_TABLE="${ASSET_COMMENTS_TABLE:-$(get_env_value ASSET_COMMENTS_TABLE 2>/dev/null || echo assetcomments)}"
 TICKETS_TABLE="${ASSET_TICKETS_TABLE:-$(get_env_value ASSET_TICKETS_TABLE 2>/dev/null || echo assettickets)}"
 
@@ -69,6 +120,12 @@ az webapp config appsettings set \
     ASSET_TICKETS_TABLE="$TICKETS_TABLE" \
   --only-show-errors \
   -o none
+
+azd env set AZURE_WEBAPP_NAME "$APP_NAME" --cwd "$STAGE_DIR" >/dev/null
+azd env set AZURE_STORAGE_ACCOUNT_NAME "$STORAGE_NAME" --cwd "$STAGE_DIR" >/dev/null
+azd env set STORAGE_TABLES_URI "$TABLES_URI" --cwd "$STAGE_DIR" >/dev/null
+azd env set ASSET_COMMENTS_TABLE "$COMMENTS_TABLE" --cwd "$STAGE_DIR" >/dev/null
+azd env set ASSET_TICKETS_TABLE "$TICKETS_TABLE" --cwd "$STAGE_DIR" >/dev/null
 
 echo "Step1 complete."
 echo "Note: RBAC propagation can take a few minutes."

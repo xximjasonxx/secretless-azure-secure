@@ -1,0 +1,12 @@
+name: secretless-azure-secure-start
+metadata:
+  template: secretless-conference-demo
+
+infra:
+  path: .
+
+services:
+  api:
+    project: ../../src
+    host: appservice
+    language: dotnet
