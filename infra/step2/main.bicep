@@ -35,7 +35,6 @@ var normalizedTags = union(tags, {
 })
 
 var vnetName = 'vnet-step2-${take(uniqueString(resourceGroup().id, appName), 6)}'
-var appGatewayName = 'agw-${take(uniqueString(resourceGroup().id, appName), 6)}'
 var appGatewaySubnetName = 'snet-appgw'
 var privateEndpointSubnetName = 'snet-pe'
 var bastionSubnetName = 'AzureBastionSubnet'
@@ -111,133 +110,6 @@ resource bastionPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
   properties: {
     publicIPAllocationMethod: 'Static'
   }
-}
-
-resource appGateway 'Microsoft.Network/applicationGateways@2024-05-01' = {
-  name: appGatewayName
-  location: location
-  tags: normalizedTags
-  sku: {
-    name: 'WAF_v2'
-    tier: 'WAF_v2'
-    capacity: 1
-  }
-  properties: {
-    gatewayIPConfigurations: [
-      {
-        name: 'appGatewayIpConfig'
-        properties: {
-          subnet: {
-            id: resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, appGatewaySubnetName)
-          }
-        }
-      }
-    ]
-    frontendIPConfigurations: [
-      {
-        name: 'publicFrontend'
-        properties: {
-          publicIPAddress: {
-            id: appGatewayPublicIp.id
-          }
-        }
-      }
-    ]
-    frontendPorts: [
-      {
-        name: 'port80'
-        properties: {
-          port: 80
-        }
-      }
-    ]
-    backendAddressPools: [
-      {
-        name: 'appServicePool'
-        properties: {
-          backendAddresses: [
-            {
-              fqdn: '${appName}.azurewebsites.net'
-            }
-          ]
-        }
-      }
-    ]
-    probes: [
-      {
-        name: 'appHealthProbe'
-        properties: {
-          protocol: 'Https'
-          path: '/health'
-          interval: 30
-          timeout: 30
-          unhealthyThreshold: 3
-          pickHostNameFromBackendHttpSettings: true
-          match: {
-            statusCodes: [
-              '200-399'
-            ]
-          }
-        }
-      }
-    ]
-    backendHttpSettingsCollection: [
-      {
-        name: 'httpsSettings'
-        properties: {
-          port: 443
-          protocol: 'Https'
-          requestTimeout: 60
-          pickHostNameFromBackendAddress: true
-          probe: {
-            id: resourceId('Microsoft.Network/applicationGateways/probes', appGatewayName, 'appHealthProbe')
-          }
-        }
-      }
-    ]
-    httpListeners: [
-      {
-        name: 'listener80'
-        properties: {
-          frontendIPConfiguration: {
-            id: resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', appGatewayName, 'publicFrontend')
-          }
-          frontendPort: {
-            id: resourceId('Microsoft.Network/applicationGateways/frontendPorts', appGatewayName, 'port80')
-          }
-          protocol: 'Http'
-        }
-      }
-    ]
-    requestRoutingRules: [
-      {
-        name: 'defaultRoute'
-        properties: {
-          ruleType: 'Basic'
-          priority: 100
-          httpListener: {
-            id: resourceId('Microsoft.Network/applicationGateways/httpListeners', appGatewayName, 'listener80')
-          }
-          backendAddressPool: {
-            id: resourceId('Microsoft.Network/applicationGateways/backendAddressPools', appGatewayName, 'appServicePool')
-          }
-          backendHttpSettings: {
-            id: resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', appGatewayName, 'httpsSettings')
-          }
-        }
-      }
-    ]
-    webApplicationFirewallConfiguration: {
-      enabled: true
-      firewallMode: 'Prevention'
-      ruleSetType: 'OWASP'
-      ruleSetVersion: '3.2'
-    }
-  }
-  dependsOn: [
-    vnet
-    appGatewayPublicIp
-  ]
 }
 
 resource bastionHost 'Microsoft.Network/bastionHosts@2024-05-01' = {
@@ -530,7 +402,7 @@ resource tableZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups
 }
 
 output applicationGatewayPublicIp string = appGatewayPublicIp.properties.ipAddress
-output applicationGatewayUrl string = 'http://${appGatewayPublicIp.properties.ipAddress}'
+output applicationGatewayPublicIpName string = appGatewayPublicIp.name
 output step2VnetName string = vnet.name
 output keyVaultName string = keyVault.name
 output keyVaultUri string = keyVault.properties.vaultUri

@@ -53,12 +53,12 @@ if [[ -z "$RG" ]]; then
   exit 1
 fi
 
-APP_NAME="${AZURE_WEBAPP_NAME:-$(get_env_value AZURE_WEBAPP_NAME 2>/dev/null || true)}"
+APP_NAME="${AZURE_WEBAPP_NAME:-}"
 if [[ -z "$APP_NAME" ]]; then
   APP_NAME="$(discover_webapp_name "$RG")"
 fi
 
-STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-$(get_env_value AZURE_STORAGE_ACCOUNT_NAME 2>/dev/null || true)}"
+STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-}"
 if [[ -z "$STORAGE_NAME" ]]; then
   STORAGE_NAME="$(discover_storage_name "$RG")"
 fi
@@ -68,7 +68,7 @@ if [[ -z "$LOCATION" ]]; then
   LOCATION="$(az group show --name "$RG" --query location -o tsv)"
 fi
 
-KEYVAULT_NAME="${AZURE_KEY_VAULT_NAME:-$(get_env_value AZURE_KEY_VAULT_NAME 2>/dev/null || true)}"
+KEYVAULT_NAME="${AZURE_KEY_VAULT_NAME:-}"
 KEYVAULT_ADMIN_OBJECT_ID="${KEYVAULT_ADMIN_OBJECT_ID:-61a37498-9ab6-43d2-b70f-706fd58274e7}"
 KEYVAULT_ADMIN_PRINCIPAL_TYPE="${KEYVAULT_ADMIN_PRINCIPAL_TYPE:-User}"
 SECRET_NAME="${ASSET_SERVICE_KEY_SECRET_NAME:-AssetServiceApiKey}"
@@ -130,12 +130,14 @@ DEPLOY_OUTPUTS="$(az deployment group create \
   --resource-group "$RG" \
   --template-file "$REPO_ROOT/infra/step2/main.bicep" \
   --parameters "${DEPLOY_PARAMS[@]}" \
-  --query "[properties.outputs.keyVaultName.value,properties.outputs.keyVaultUri.value]" \
+  --query "[properties.outputs.keyVaultName.value,properties.outputs.keyVaultUri.value,properties.outputs.step2VnetName.value,properties.outputs.applicationGatewayPublicIpName.value]" \
   --only-show-errors \
   -o tsv)"
 
 KEYVAULT_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '1p')"
 KEYVAULT_URI="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '2p')"
+VNET_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '3p')"
+APP_GATEWAY_PUBLIC_IP_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '4p')"
 SECRET_URI="${KEYVAULT_URI}secrets/${SECRET_NAME}/"
 
 echo "Locking resources to private-only access..."
@@ -163,6 +165,38 @@ az resource update \
   --only-show-errors \
   -o none
 
+APP_GATEWAY_NAME="${AZURE_APP_GATEWAY_NAME:-agw-${APP_NAME}}"
+EXISTING_APP_GATEWAY="$(az network application-gateway list \
+  --resource-group "$RG" \
+  --query "[?name=='${APP_GATEWAY_NAME}'] | [0].name" \
+  -o tsv 2>/dev/null || true)"
+if [[ -z "$EXISTING_APP_GATEWAY" ]]; then
+  az network application-gateway create \
+    --name "$APP_GATEWAY_NAME" \
+    --resource-group "$RG" \
+    --location "$LOCATION" \
+    --sku WAF_v2 \
+    --capacity 1 \
+    --vnet-name "$VNET_NAME" \
+    --subnet snet-appgw \
+    --public-ip-address "$APP_GATEWAY_PUBLIC_IP_NAME" \
+    --servers "${APP_NAME}.azurewebsites.net" \
+    --frontend-port 80 \
+    --http-settings-protocol Https \
+    --http-settings-port 443 \
+    --http-settings-cookie-based-affinity Disabled \
+    --routing-rule-type Basic \
+    --priority 100 \
+    --only-show-errors \
+    -o none
+fi
+
+APP_GATEWAY_IP="$(az network public-ip show \
+  --resource-group "$RG" \
+  --name "$APP_GATEWAY_PUBLIC_IP_NAME" \
+  --query ipAddress \
+  -o tsv)"
+
 az webapp config appsettings set \
   --resource-group "$RG" \
   --name "$APP_NAME" \
@@ -171,11 +205,6 @@ az webapp config appsettings set \
     ASSET_SERVICE_API_KEY="@Microsoft.KeyVault(SecretUri=${SECRET_URI})" \
   --only-show-errors \
   -o none
-
-APP_GATEWAY_IP="$(az network public-ip list \
-  --resource-group "$RG" \
-  --query "[?contains(name,'pip-appgw-')].ipAddress | [0]" \
-  -o tsv)"
 
 echo "Step2 complete."
 if [[ -n "$APP_GATEWAY_IP" ]]; then

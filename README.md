@@ -70,7 +70,7 @@ Each stage is its own azd project. Run `azd up` from the stage folder.
 ## Course run order
 
 Use the same azd environment name in every stage folder (for example: `demo`).
-`step1` and `step2` automatically sync resource group and location from `infra/start` for that environment.
+Each stage defaults to the `demo` azd environment, uses the active Azure CLI auth, and carries the demo RG/location forward so `azd up` does not prompt.
 
 1. Stage 1 baseline (`start`):
 
@@ -138,7 +138,7 @@ cd infra/step1
 azd up
 ```
 
-`azd up` first syncs RG/location from `infra/start`, then runs the stage transition hook (`apply.sh`) after provisioning.
+`azd up` provisions the stage resources at `swedencentral`, then runs the stage transition script (`apply.sh`). The script discovers the Key Vault name from the resource group and creates the Application Gateway after the base network is provisioned.
 
 What it changes:
 
@@ -158,7 +158,7 @@ cd infra/step2
 azd up
 ```
 
-`azd up` first syncs RG/location from `infra/start`, then runs the stage transition hook (`apply.sh`) after provisioning.
+`azd up` provisions the stage resources at `swedencentral`, then runs the stage transition script (`apply.sh`).
 
 What it deploys and applies:
 

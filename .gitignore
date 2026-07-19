@@ -5,6 +5,19 @@
 
 # Azure Developer CLI local state
 .azure/
+!infra/start/.azure/
+!infra/start/.azure/.gitignore
+!infra/start/.azure/config.json
+!infra/step1/.azure/
+!infra/step1/.azure/.gitignore
+!infra/step1/.azure/config.json
+!infra/step1/.azure/demo/
+!infra/step1/.azure/demo/.env
+!infra/step2/.azure/
+!infra/step2/.azure/.gitignore
+!infra/step2/.azure/config.json
+!infra/step2/.azure/demo/
+!infra/step2/.azure/demo/.env
 
 # Secrets/local env files
 .env

@@ -5,10 +5,11 @@ metadata:
 infra:
   path: ./azd
 
+workflows:
+  up:
+    - azd: provision --location swedencentral
+
 hooks:
-  preprovision:
-    shell: sh
-    run: ../sync-from-start-env.sh
   postprovision:
     shell: sh
-    run: ./apply.sh
+    run: bash ./apply.sh

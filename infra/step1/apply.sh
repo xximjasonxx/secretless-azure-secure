@@ -52,12 +52,12 @@ if [[ -z "$RG" ]]; then
   exit 1
 fi
 
-APP_NAME="${AZURE_WEBAPP_NAME:-$(get_env_value AZURE_WEBAPP_NAME 2>/dev/null || true)}"
+APP_NAME="${AZURE_WEBAPP_NAME:-}"
 if [[ -z "$APP_NAME" ]]; then
   APP_NAME="$(discover_webapp_name "$RG")"
 fi
 
-STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-$(get_env_value AZURE_STORAGE_ACCOUNT_NAME 2>/dev/null || true)}"
+STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-}"
 if [[ -z "$STORAGE_NAME" ]]; then
   STORAGE_NAME="$(discover_storage_name "$RG")"
 fi

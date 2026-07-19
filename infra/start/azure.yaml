@@ -5,8 +5,15 @@ metadata:
 infra:
   path: .
 
+workflows:
+  up:
+    - azd: restore
+    - azd: provision --location swedencentral
+    - azd: package --all
+    - azd: deploy --all
+
 services:
   api:
-    project: ../../src
+    project: ../../src/Secretless.AzureSecureDemo.csproj
     host: appservice
     language: dotnet
