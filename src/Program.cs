@@ -75,7 +75,7 @@ app.MapGet("/api/mission-control", () =>
 
     var networkProfile = stage switch
     {
-        "step2" => "private-networking",
+        "final" => "private-networking",
         "step1" => "public-endpoints-with-managed-identity",
         _ => "public-endpoints"
     };
@@ -245,7 +245,7 @@ TableServiceClient BuildTableServiceClient()
     var tablesUri = Environment.GetEnvironmentVariable("STORAGE_TABLES_URI");
     if (string.IsNullOrWhiteSpace(tablesUri))
     {
-        throw new InvalidOperationException("Set STORAGE_CONNECTION_STRING (start) or STORAGE_TABLES_URI (step1/step2).");
+        throw new InvalidOperationException("Set STORAGE_CONNECTION_STRING (start) or STORAGE_TABLES_URI (step1/final).");
     }
 
     return new TableServiceClient(new Uri(tablesUri), new DefaultAzureCredential());
@@ -645,7 +645,7 @@ static string GetMissionControlPage() => """
       const res = await fetch('/api/mission-control');
       const data = await res.json();
 
-      setBadge('mcStage', data.stage, data.stage === 'step2' ? 'success' : 'warning');
+      setBadge('mcStage', data.stage, data.stage === 'final' ? 'success' : 'warning');
       setBadge('mcNetwork', data.networkProfile, toneForValue(data.networkProfile, ['private-networking'], ['public-endpoints-with-managed-identity']));
       setBadge('mcStorageAuth', data.storageAuthMode, toneForValue(data.storageAuthMode, ['managed-identity'], ['connection-string']));
       setBadge('mcApiKey', data.apiKeySource, toneForValue(data.apiKeySource, ['key-vault-reference'], ['app-setting-plain-text']));

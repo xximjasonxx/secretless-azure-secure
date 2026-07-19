@@ -20,7 +20,8 @@ discover_webapp_name() {
   fi
 
   if [[ "$count" == "0" ]]; then
-    echo "ERROR: No App Service found in resource group '$rg'. Run previous stages first."
+    echo "ERROR: No App Service found in resource group '$rg'."
+    echo "Run 'azd up' in infra/final to deploy the baseline resources first."
     exit 1
   fi
 
@@ -39,12 +40,39 @@ discover_storage_name() {
   fi
 
   if [[ "$count" == "0" ]]; then
-    echo "ERROR: No Storage account found in resource group '$rg'. Run previous stages first."
+    echo "ERROR: No Storage account found in resource group '$rg'."
+    echo "Run 'azd up' in infra/final to deploy the baseline resources first."
     exit 1
   fi
 
   echo "ERROR: Multiple Storage accounts found in '$rg'. Set AZURE_STORAGE_ACCOUNT_NAME in this stage environment."
   exit 1
+}
+
+ensure_role_assignment() {
+  local role_name="$1"
+  local scope="$2"
+  local principal_id="$3"
+  local existing
+  existing="$(az role assignment list \
+    --assignee-object-id "$principal_id" \
+    --scope "$scope" \
+    --query "[?roleDefinitionName=='$role_name'] | [0].id" \
+    -o tsv)"
+
+  if [[ -n "$existing" ]]; then
+    echo "Role already assigned: $role_name"
+    return 0
+  fi
+
+  echo "Assigning role: $role_name"
+  az role assignment create \
+    --assignee-object-id "$principal_id" \
+    --assignee-principal-type ServicePrincipal \
+    --role "$role_name" \
+    --scope "$scope" \
+    --only-show-errors \
+    -o none
 }
 
 RG="${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP 2>/dev/null || true)}"
@@ -68,12 +96,16 @@ if [[ -z "$LOCATION" ]]; then
   LOCATION="$(az group show --name "$RG" --query location -o tsv)"
 fi
 
+COMMENTS_TABLE="${ASSET_COMMENTS_TABLE:-$(get_env_value ASSET_COMMENTS_TABLE 2>/dev/null || echo assetcomments)}"
+TICKETS_TABLE="${ASSET_TICKETS_TABLE:-$(get_env_value ASSET_TICKETS_TABLE 2>/dev/null || echo assettickets)}"
 KEYVAULT_NAME="${AZURE_KEY_VAULT_NAME:-}"
-KEYVAULT_ADMIN_OBJECT_ID="${KEYVAULT_ADMIN_OBJECT_ID:-61a37498-9ab6-43d2-b70f-706fd58274e7}"
-KEYVAULT_ADMIN_PRINCIPAL_TYPE="${KEYVAULT_ADMIN_PRINCIPAL_TYPE:-User}"
+KEYVAULT_ADMIN_OBJECT_ID="${KEYVAULT_ADMIN_OBJECT_ID:-}"
+KEYVAULT_ADMIN_PRINCIPAL_TYPE="${KEYVAULT_ADMIN_PRINCIPAL_TYPE:-}"
 SECRET_NAME="${ASSET_SERVICE_KEY_SECRET_NAME:-AssetServiceApiKey}"
+APP_GATEWAY_NAME="${AZURE_APP_GATEWAY_NAME:-agw-${APP_NAME}}"
+APP_GATEWAY_SKU="${AZURE_APP_GATEWAY_SKU:-Standard_v2}"
 
-echo "Applying step2 private networking resources..."
+echo "Applying final secure configuration..."
 echo "Resource group: $RG"
 echo "App Service: $APP_NAME"
 echo "Storage account: $STORAGE_NAME"
@@ -82,11 +114,49 @@ if [[ -n "$KEYVAULT_NAME" ]]; then
 fi
 
 echo "Ensuring App Service system-assigned identity is enabled..."
-APP_PRINCIPAL_ID="$(az webapp identity assign \
+if ! APP_PRINCIPAL_ID="$(az webapp identity assign \
   --resource-group "$RG" \
   --name "$APP_NAME" \
   --query principalId \
-  -o tsv)"
+  -o tsv)"; then
+  echo "ERROR: Failed to enable or read App Service managed identity for '$APP_NAME'."
+  exit 1
+fi
+
+ST_SCOPE="$(az storage account show --resource-group "$RG" --name "$STORAGE_NAME" --query id -o tsv)"
+ensure_role_assignment "Storage Table Data Contributor" "$ST_SCOPE" "$APP_PRINCIPAL_ID"
+TABLES_URI="https://${STORAGE_NAME}.table.core.windows.net/"
+
+if [[ -z "$KEYVAULT_ADMIN_OBJECT_ID" ]]; then
+  ACCOUNT_USER_TYPE="$(az account show --query user.type -o tsv 2>/dev/null || true)"
+  ACCOUNT_USER_NAME="$(az account show --query user.name -o tsv 2>/dev/null || true)"
+
+  ACCOUNT_USER_TYPE_NORMALIZED="$(printf '%s' "$ACCOUNT_USER_TYPE" | tr '[:upper:]' '[:lower:]')"
+  case "$ACCOUNT_USER_TYPE_NORMALIZED" in
+    serviceprincipal)
+      KEYVAULT_ADMIN_OBJECT_ID="$(az ad sp show --id "$ACCOUNT_USER_NAME" --query id -o tsv 2>/dev/null || true)"
+      if [[ -z "$KEYVAULT_ADMIN_PRINCIPAL_TYPE" ]]; then
+        KEYVAULT_ADMIN_PRINCIPAL_TYPE="ServicePrincipal"
+      fi
+      ;;
+    *)
+      KEYVAULT_ADMIN_OBJECT_ID="$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)"
+      if [[ -z "$KEYVAULT_ADMIN_PRINCIPAL_TYPE" ]]; then
+        KEYVAULT_ADMIN_PRINCIPAL_TYPE="User"
+      fi
+      ;;
+  esac
+fi
+
+if [[ -z "$KEYVAULT_ADMIN_PRINCIPAL_TYPE" ]]; then
+  KEYVAULT_ADMIN_PRINCIPAL_TYPE="User"
+fi
+
+if [[ -z "$KEYVAULT_ADMIN_OBJECT_ID" ]]; then
+  echo "ERROR: Could not resolve KEYVAULT_ADMIN_OBJECT_ID from current Azure CLI context."
+  echo "Set KEYVAULT_ADMIN_OBJECT_ID explicitly in the stage environment and retry."
+  exit 1
+fi
 
 ASSET_SERVICE_API_KEY_VALUE="${ASSET_SERVICE_API_KEY_VALUE:-$(az webapp config appsettings list \
   --resource-group "$RG" \
@@ -126,18 +196,32 @@ if [[ -n "$KEYVAULT_NAME" ]]; then
   DEPLOY_PARAMS+=("keyVaultName=$KEYVAULT_NAME")
 fi
 
+echo "Deploying final network and Key Vault infrastructure..."
+set +e
 DEPLOY_OUTPUTS="$(az deployment group create \
   --resource-group "$RG" \
-  --template-file "$REPO_ROOT/infra/step2/main.bicep" \
+  --template-file "$REPO_ROOT/infra/final/main.bicep" \
   --parameters "${DEPLOY_PARAMS[@]}" \
-  --query "[properties.outputs.keyVaultName.value,properties.outputs.keyVaultUri.value,properties.outputs.step2VnetName.value,properties.outputs.applicationGatewayPublicIpName.value]" \
+  --query "[properties.outputs.keyVaultName.value,properties.outputs.keyVaultUri.value,properties.outputs.finalVnetName.value,properties.outputs.applicationGatewayPublicIpName.value]" \
   --only-show-errors \
   -o tsv)"
+DEPLOY_EXIT_CODE=$?
+set -e
+if [[ $DEPLOY_EXIT_CODE -ne 0 ]]; then
+  if [[ -n "$DEPLOY_OUTPUTS" ]]; then
+    echo "$DEPLOY_OUTPUTS" >&2
+  fi
+  exit $DEPLOY_EXIT_CODE
+fi
 
 KEYVAULT_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '1p')"
 KEYVAULT_URI="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '2p')"
 VNET_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '3p')"
 APP_GATEWAY_PUBLIC_IP_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '4p')"
+if [[ -z "$KEYVAULT_NAME" || -z "$KEYVAULT_URI" || -z "$VNET_NAME" || -z "$APP_GATEWAY_PUBLIC_IP_NAME" ]]; then
+  echo "ERROR: Missing expected deployment outputs from final infrastructure deployment."
+  exit 1
+fi
 SECRET_URI="${KEYVAULT_URI}secrets/${SECRET_NAME}/"
 
 echo "Locking resources to private-only access..."
@@ -165,7 +249,6 @@ az resource update \
   --only-show-errors \
   -o none
 
-APP_GATEWAY_NAME="${AZURE_APP_GATEWAY_NAME:-agw-${APP_NAME}}"
 EXISTING_APP_GATEWAY="$(az network application-gateway list \
   --resource-group "$RG" \
   --query "[?name=='${APP_GATEWAY_NAME}'] | [0].name" \
@@ -175,7 +258,7 @@ if [[ -z "$EXISTING_APP_GATEWAY" ]]; then
     --name "$APP_GATEWAY_NAME" \
     --resource-group "$RG" \
     --location "$LOCATION" \
-    --sku WAF_v2 \
+    --sku "$APP_GATEWAY_SKU" \
     --capacity 1 \
     --vnet-name "$VNET_NAME" \
     --subnet snet-appgw \
@@ -197,16 +280,20 @@ APP_GATEWAY_IP="$(az network public-ip show \
   --query ipAddress \
   -o tsv)"
 
+echo "Updating app settings for final secure mode..."
 az webapp config appsettings set \
   --resource-group "$RG" \
   --name "$APP_NAME" \
   --settings \
-    APP_SECURITY_STAGE=step2 \
+    APP_SECURITY_STAGE=final \
+    STORAGE_CONNECTION_STRING= \
+    STORAGE_TABLES_URI="$TABLES_URI" \
+    ASSET_COMMENTS_TABLE="$COMMENTS_TABLE" \
+    ASSET_TICKETS_TABLE="$TICKETS_TABLE" \
     ASSET_SERVICE_API_KEY="@Microsoft.KeyVault(SecretUri=${SECRET_URI})" \
   --only-show-errors \
   -o none
 
-echo "Step2 complete."
 if [[ -n "$APP_GATEWAY_IP" ]]; then
   azd env set APP_GATEWAY_URL "http://${APP_GATEWAY_IP}" --cwd "$STAGE_DIR" >/dev/null
   echo "Application Gateway URL: http://${APP_GATEWAY_IP}"
@@ -216,4 +303,8 @@ azd env set AZURE_WEBAPP_NAME "$APP_NAME" --cwd "$STAGE_DIR" >/dev/null
 azd env set AZURE_STORAGE_ACCOUNT_NAME "$STORAGE_NAME" --cwd "$STAGE_DIR" >/dev/null
 azd env set AZURE_KEY_VAULT_NAME "$KEYVAULT_NAME" --cwd "$STAGE_DIR" >/dev/null
 azd env set KEYVAULT_URI "$KEYVAULT_URI" --cwd "$STAGE_DIR" >/dev/null
-echo "Key Vault created: $KEYVAULT_NAME"
+azd env set STORAGE_TABLES_URI "$TABLES_URI" --cwd "$STAGE_DIR" >/dev/null
+azd env set ASSET_COMMENTS_TABLE "$COMMENTS_TABLE" --cwd "$STAGE_DIR" >/dev/null
+azd env set ASSET_TICKETS_TABLE "$TICKETS_TABLE" --cwd "$STAGE_DIR" >/dev/null
+
+echo "Final stage complete."

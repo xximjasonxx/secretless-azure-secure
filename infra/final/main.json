@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.43.8.12551",
-      "templateHash": "10734659251565240320"
+      "version": "0.44.1.10279",
+      "templateHash": "17186813901153261768"
     }
   },
   "parameters": {
@@ -24,9 +24,9 @@
     },
     "keyVaultName": {
       "type": "string",
-      "defaultValue": "[toLower(format('kv{0}', take(uniqueString(resourceGroup().id, parameters('appName'), 'step2kv'), 22)))]",
+      "defaultValue": "[toLower(format('kv{0}', take(uniqueString(resourceGroup().id, parameters('appName'), 'finalkv'), 22)))]",
       "metadata": {
-        "description": "Key Vault name created during step2."
+        "description": "Key Vault name created during final stage."
       }
     },
     "storageAccountName": {
@@ -38,14 +38,13 @@
     "assetServiceApiKeySecretValue": {
       "type": "securestring",
       "metadata": {
-        "description": "Asset service API key value copied into Key Vault during step2."
+        "description": "Asset service API key value copied into Key Vault during final stage."
       }
     },
     "keyVaultAdminObjectId": {
       "type": "string",
-      "defaultValue": "61a37498-9ab6-43d2-b70f-706fd58274e7",
       "metadata": {
-        "description": "Object ID granted Key Vault Administrator on the step2 Key Vault."
+        "description": "Object ID granted Key Vault Administrator on the final Key Vault."
       }
     },
     "keyVaultAdminPrincipalType": {
@@ -72,17 +71,15 @@
       "type": "object",
       "defaultValue": {},
       "metadata": {
-        "description": "Optional tags for step2 resources."
+        "description": "Optional tags for final-stage resources."
       }
     }
   },
   "variables": {
     "normalizedTags": "[union(parameters('tags'), createObject('SecurityControl', 'Ignore'))]",
-    "vnetName": "[format('vnet-step2-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
-    "appGatewayName": "[format('agw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
+    "vnetName": "[format('vnet-final-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
     "appGatewaySubnetName": "snet-appgw",
     "privateEndpointSubnetName": "snet-pe",
-    "bastionSubnetName": "AzureBastionSubnet",
     "appIntegrationSubnetName": "snet-app",
     "keyVaultAdministratorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')]",
     "keyVaultSecretsUserRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]"
@@ -115,12 +112,6 @@
             }
           },
           {
-            "name": "[variables('bastionSubnetName')]",
-            "properties": {
-              "addressPrefix": "10.80.3.0/26"
-            }
-          },
-          {
             "name": "[variables('appIntegrationSubnetName')]",
             "properties": {
               "addressPrefix": "10.80.4.0/24",
@@ -149,176 +140,6 @@
       "properties": {
         "publicIPAllocationMethod": "Static"
       }
-    },
-    {
-      "type": "Microsoft.Network/publicIPAddresses",
-      "apiVersion": "2024-05-01",
-      "name": "[format('pip-bastion-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('normalizedTags')]",
-      "sku": {
-        "name": "Standard"
-      },
-      "properties": {
-        "publicIPAllocationMethod": "Static"
-      }
-    },
-    {
-      "type": "Microsoft.Network/applicationGateways",
-      "apiVersion": "2024-05-01",
-      "name": "[variables('appGatewayName')]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('normalizedTags')]",
-      "sku": {
-        "name": "WAF_v2",
-        "tier": "WAF_v2",
-        "capacity": 1
-      },
-      "properties": {
-        "gatewayIPConfigurations": [
-          {
-            "name": "appGatewayIpConfig",
-            "properties": {
-              "subnet": {
-                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('appGatewaySubnetName'))]"
-              }
-            }
-          }
-        ],
-        "frontendIPConfigurations": [
-          {
-            "name": "publicFrontend",
-            "properties": {
-              "publicIPAddress": {
-                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]"
-              }
-            }
-          }
-        ],
-        "frontendPorts": [
-          {
-            "name": "port80",
-            "properties": {
-              "port": 80
-            }
-          }
-        ],
-        "backendAddressPools": [
-          {
-            "name": "appServicePool",
-            "properties": {
-              "backendAddresses": [
-                {
-                  "fqdn": "[format('{0}.azurewebsites.net', parameters('appName'))]"
-                }
-              ]
-            }
-          }
-        ],
-        "probes": [
-          {
-            "name": "appHealthProbe",
-            "properties": {
-              "protocol": "Https",
-              "path": "/health",
-              "interval": 30,
-              "timeout": 30,
-              "unhealthyThreshold": 3,
-              "pickHostNameFromBackendHttpSettings": true,
-              "match": {
-                "statusCodes": [
-                  "200-399"
-                ]
-              }
-            }
-          }
-        ],
-        "backendHttpSettingsCollection": [
-          {
-            "name": "httpsSettings",
-            "properties": {
-              "port": 443,
-              "protocol": "Https",
-              "requestTimeout": 60,
-              "pickHostNameFromBackendAddress": true,
-              "probe": {
-                "id": "[resourceId('Microsoft.Network/applicationGateways/probes', variables('appGatewayName'), 'appHealthProbe')]"
-              }
-            }
-          }
-        ],
-        "httpListeners": [
-          {
-            "name": "listener80",
-            "properties": {
-              "frontendIPConfiguration": {
-                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendIPConfigurations', variables('appGatewayName'), 'publicFrontend')]"
-              },
-              "frontendPort": {
-                "id": "[resourceId('Microsoft.Network/applicationGateways/frontendPorts', variables('appGatewayName'), 'port80')]"
-              },
-              "protocol": "Http"
-            }
-          }
-        ],
-        "requestRoutingRules": [
-          {
-            "name": "defaultRoute",
-            "properties": {
-              "ruleType": "Basic",
-              "priority": 100,
-              "httpListener": {
-                "id": "[resourceId('Microsoft.Network/applicationGateways/httpListeners', variables('appGatewayName'), 'listener80')]"
-              },
-              "backendAddressPool": {
-                "id": "[resourceId('Microsoft.Network/applicationGateways/backendAddressPools', variables('appGatewayName'), 'appServicePool')]"
-              },
-              "backendHttpSettings": {
-                "id": "[resourceId('Microsoft.Network/applicationGateways/backendHttpSettingsCollection', variables('appGatewayName'), 'httpsSettings')]"
-              }
-            }
-          }
-        ],
-        "webApplicationFirewallConfiguration": {
-          "enabled": true,
-          "firewallMode": "Prevention",
-          "ruleSetType": "OWASP",
-          "ruleSetVersion": "3.2"
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]",
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Network/bastionHosts",
-      "apiVersion": "2024-05-01",
-      "name": "[format('bas-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('normalizedTags')]",
-      "sku": {
-        "name": "Standard"
-      },
-      "properties": {
-        "ipConfigurations": [
-          {
-            "name": "bastionIpConfig",
-            "properties": {
-              "subnet": {
-                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('bastionSubnetName'))]"
-              },
-              "publicIPAddress": {
-                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-bastion-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]"
-              }
-            }
-          }
-        ]
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/publicIPAddresses', format('pip-bastion-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]",
-        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
-      ]
     },
     {
       "type": "Microsoft.Network/privateDnsZones",
@@ -617,11 +438,11 @@
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))), '2024-05-01').ipAddress]"
     },
-    "applicationGatewayUrl": {
+    "applicationGatewayPublicIpName": {
       "type": "string",
-      "value": "[format('http://{0}', reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))), '2024-05-01').ipAddress)]"
+      "value": "[format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))]"
     },
-    "step2VnetName": {
+    "finalVnetName": {
       "type": "string",
       "value": "[variables('vnetName')]"
     },

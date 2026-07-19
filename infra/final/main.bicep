@@ -6,18 +6,18 @@ param location string = resourceGroup().location
 @description('Existing App Service name.')
 param appName string
 
-@description('Key Vault name created during step2.')
-param keyVaultName string = toLower('kv${take(uniqueString(resourceGroup().id, appName, 'step2kv'), 22)}')
+@description('Key Vault name created during final stage.')
+param keyVaultName string = toLower('kv${take(uniqueString(resourceGroup().id, appName, 'finalkv'), 22)}')
 
 @description('Existing Storage account name.')
 param storageAccountName string
 
-@description('Asset service API key value copied into Key Vault during step2.')
+@description('Asset service API key value copied into Key Vault during final stage.')
 @secure()
 param assetServiceApiKeySecretValue string
 
-@description('Object ID granted Key Vault Administrator on the step2 Key Vault.')
-param keyVaultAdminObjectId string = '61a37498-9ab6-43d2-b70f-706fd58274e7'
+@description('Object ID granted Key Vault Administrator on the final Key Vault.')
+param keyVaultAdminObjectId string
 
 @description('Principal type for the Key Vault Administrator assignment.')
 param keyVaultAdminPrincipalType string = 'User'
@@ -28,16 +28,15 @@ param appPrincipalObjectId string
 @description('Key Vault secret name used by the app.')
 param assetServiceApiKeySecretName string = 'AssetServiceApiKey'
 
-@description('Optional tags for step2 resources.')
+@description('Optional tags for final-stage resources.')
 param tags object = {}
 var normalizedTags = union(tags, {
   'SecurityControl': 'Ignore'
 })
 
-var vnetName = 'vnet-step2-${take(uniqueString(resourceGroup().id, appName), 6)}'
+var vnetName = 'vnet-final-${take(uniqueString(resourceGroup().id, appName), 6)}'
 var appGatewaySubnetName = 'snet-appgw'
 var privateEndpointSubnetName = 'snet-pe'
-var bastionSubnetName = 'AzureBastionSubnet'
 var appIntegrationSubnetName = 'snet-app'
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
@@ -62,12 +61,6 @@ resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
         properties: {
           addressPrefix: '10.80.2.0/24'
           privateEndpointNetworkPolicies: 'Disabled'
-        }
-      }
-      {
-        name: bastionSubnetName
-        properties: {
-          addressPrefix: '10.80.3.0/26'
         }
       }
       {
@@ -98,46 +91,6 @@ resource appGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
   properties: {
     publicIPAllocationMethod: 'Static'
   }
-}
-
-resource bastionPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
-  name: 'pip-bastion-${take(uniqueString(resourceGroup().id, appName), 6)}'
-  location: location
-  tags: normalizedTags
-  sku: {
-    name: 'Standard'
-  }
-  properties: {
-    publicIPAllocationMethod: 'Static'
-  }
-}
-
-resource bastionHost 'Microsoft.Network/bastionHosts@2024-05-01' = {
-  name: 'bas-${take(uniqueString(resourceGroup().id, appName), 6)}'
-  location: location
-  tags: normalizedTags
-  sku: {
-    name: 'Standard'
-  }
-  properties: {
-    ipConfigurations: [
-      {
-        name: 'bastionIpConfig'
-        properties: {
-          subnet: {
-            id: resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, bastionSubnetName)
-          }
-          publicIPAddress: {
-            id: bastionPublicIp.id
-          }
-        }
-      }
-    ]
-  }
-  dependsOn: [
-    vnet
-    bastionPublicIp
-  ]
 }
 
 resource appPrivateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
@@ -403,6 +356,6 @@ resource tableZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups
 
 output applicationGatewayPublicIp string = appGatewayPublicIp.properties.ipAddress
 output applicationGatewayPublicIpName string = appGatewayPublicIp.name
-output step2VnetName string = vnet.name
+output finalVnetName string = vnet.name
 output keyVaultName string = keyVault.name
 output keyVaultUri string = keyVault.properties.vaultUri

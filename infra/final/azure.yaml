@@ -1,0 +1,24 @@
+name: secretless-azure-secure-final
+metadata:
+  template: secretless-conference-demo
+
+infra:
+  path: ../start
+
+workflows:
+  up:
+    - azd: restore
+    - azd: provision --location swedencentral
+    - azd: package --all
+    - azd: deploy --all
+
+hooks:
+  postdeploy:
+    shell: sh
+    run: bash ./apply.sh
+
+services:
+  api:
+    project: ../../src/Secretless.AzureSecureDemo.csproj
+    host: appservice
+    language: dotnet

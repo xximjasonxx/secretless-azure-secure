@@ -13,11 +13,11 @@
 !infra/step1/.azure/config.json
 !infra/step1/.azure/demo/
 !infra/step1/.azure/demo/.env
-!infra/step2/.azure/
-!infra/step2/.azure/.gitignore
-!infra/step2/.azure/config.json
-!infra/step2/.azure/demo/
-!infra/step2/.azure/demo/.env
+!infra/final/.azure/
+!infra/final/.azure/.gitignore
+!infra/final/.azure/config.json
+!infra/final/.azure/final/
+!infra/final/.azure/final/.env
 
 # Secrets/local env files
 .env

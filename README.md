@@ -1,26 +1,24 @@
 # Azure App Security Journey Demo (.NET 8 + azd + Bicep)
 
-This repo now models a **three-stage security journey** for an asset operations web app:
+This repo models a staged security journey for an asset operations web app:
 
-1. **start** — intentionally less secure baseline (connection string + app setting API key, no Key Vault).
+1. **start** — intentionally less secure baseline (connection string + plain app setting API key, public endpoints).
 2. **step1** — move storage access to **Managed Identity + RBAC**.
-3. **step2** — introduce **Key Vault + RBAC** and apply **private networking**.
-
-The custom asset service is treated as an external dependency. A `404` from that service is acceptable in this demo and the app falls back to local sample assets.
+3. **final** — complete hardened posture (Key Vault reference + private endpoints + Application Gateway).
 
 ---
 
 ## What the app does
 
-- Serves a simple web UI at `/` for:
+- Serves a web UI at `/` for:
   - asset search
   - adding comments
   - creating tickets
 - Stores comments/tickets in **Azure Table Storage**
-- Calls an external asset API using an API key (`ASSET_SERVICE_API_KEY`)
-- Supports both storage auth modes in one code path:
+- Calls an external asset API using `ASSET_SERVICE_API_KEY`
+- Supports both storage auth modes:
   - `STORAGE_CONNECTION_STRING` (start)
-  - `STORAGE_TABLES_URI` + `DefaultAzureCredential` (step1/step2)
+  - `STORAGE_TABLES_URI` + `DefaultAzureCredential` (step1/final)
 
 ---
 
@@ -41,13 +39,10 @@ infra/
 │   └── azd/
 │       ├── main.bicep
 │       └── main.parameters.json
-└── step2/
+└── final/
     ├── azure.yaml
     ├── apply.sh
-    ├── main.bicep
-    └── azd/
-        ├── main.bicep
-        └── main.parameters.json
+    └── main.bicep
 ```
 
 ---
@@ -65,163 +60,94 @@ azd auth login
 
 Each stage is its own azd project. Run `azd up` from the stage folder.
 
----
-
-## Course run order
-
-Use the same azd environment name in every stage folder (for example: `demo`).
-Each stage defaults to the `demo` azd environment, uses the active Azure CLI auth, and carries the demo RG/location forward so `azd up` does not prompt.
-
-1. Stage 1 baseline (`start`):
-
-```bash
-cd infra/start
-azd up
-```
-
-2. Stage 2 hardening (`step1`):
-
-```bash
-cd infra/step1
-azd up
-```
-
-3. Stage 3 private networking (`step2`):
-
-```bash
-cd infra/step2
-azd up
-```
+Default environments:
+- `infra/final` uses `AZURE_ENV_NAME=final` and defaults to `rg-securetalk-poc-swc-mx01-final`
+- `infra/start` and `infra/step1` use `AZURE_ENV_NAME=demo` and default to `rg-securetalk-poc-swc-mx01`
 
 ---
 
-## Stage 1: Initial standup (`start`)
+## Required presentation order
 
-Run:
+Deploy and verify the complete hardened environment **first**, then run baseline stages.
+
+1. Predeploy complete solution (`final`) first:
 
 ```bash
-cd infra/start
+cd infra/final
 azd up
-```
-
-Defaults:
-
-- Resource group: `rg-securetalk-poc-swc-mx01` (when `AZURE_RESOURCE_GROUP` is not set)
-- Location: `swedencentral`
-
-If your subscription policy does not allow `swedencentral`, update `infra/start/main.parameters.json` and run `azd up` again.
-For non-`demo` environments, the default RG becomes `rg-securetalk-poc-swc-mx01-<env>`.
-You can still set an explicit RG name per environment before running `azd up`:
-
-```bash
-azd env set AZURE_RESOURCE_GROUP <env-specific-rg-name>
-```
-
-When overriding `AZURE_RESOURCE_GROUP`, use an RG in `swedencentral` or update `infra/start/main.parameters.json` location to match the RG's region.
-
-### `start` stage posture
-
-- App Service is public
-- Storage is public and app uses **connection string**
-- API key is stored directly in App Service app settings
-- Key Vault is not deployed yet
-- No private endpoints, no App Gateway, no Bastion
-
----
-
-## Stage 2: Managed Identity + RBAC for storage
-
-Run:
-
-```bash
-cd infra/step1
-azd up
-```
-
-`azd up` provisions the stage resources at `swedencentral`, then runs the stage transition script (`apply.sh`). The script discovers the Key Vault name from the resource group and creates the Application Gateway after the base network is provisioned.
-
-What it changes:
-
-- Enables system-assigned identity on App Service
-- Assigns `Storage Table Data Contributor` on Storage account
-- Switches storage mode to MI (`STORAGE_TABLES_URI`) and clears `STORAGE_CONNECTION_STRING`
-- Leaves API key in plain App Service app settings (still intentionally insecure)
-
----
-
-## Stage 3: Private networking
-
-Run:
-
-```bash
-cd infra/step2
-azd up
-```
-
-`azd up` provisions the stage resources at `swedencentral`, then runs the stage transition script (`apply.sh`).
-
-What it deploys and applies:
-
-- VNet and subnets for:
-  - Application Gateway WAF v2
-  - Private Endpoints
-  - Bastion
-- Creates Key Vault and seeds `AssetServiceApiKey` from the current app setting value
-- Assigns Key Vault RBAC:
-  - `Key Vault Administrator` to object `61a37498-9ab6-43d2-b70f-706fd58274e7`
-  - `Key Vault Secrets User` to the App Service managed identity
-- Switches `ASSET_SERVICE_API_KEY` app setting to Key Vault reference syntax
-- Private endpoints for:
-  - App Service (`sites`)
-  - Key Vault (`vault`)
-  - Storage Table (`table`)
-- Private DNS zones and VNet links:
-  - `privatelink.azurewebsites.net`
-  - `privatelink.vaultcore.azure.net`
-  - `privatelink.table.core.windows.net`
-- Locks public access:
-  - App Service `publicNetworkAccess=Disabled`
-  - Key Vault public access disabled + deny firewall default
-  - Storage public access disabled + deny firewall default
-
----
-
-## Validate app behavior
-
-```bash
-cd infra/start
-API_URL=$(azd env get-value API_URL)
-curl -sS "$API_URL/health"
-```
-
-Expected: `ok`
-
-Open the web app:
-
-```bash
-cd infra/start
-API_URL=$(azd env get-value API_URL)
-open "$API_URL"
-```
-
-If the external asset API is not implemented yet, search still works via local fallback and may show source messages that include `asset service 404` or `asset service unavailable`.
-
-After `step2`, validate through Application Gateway instead of direct App Service:
-
-```bash
-cd infra/step2
 APP_GATEWAY_URL=$(azd env get-value APP_GATEWAY_URL)
 curl -sS "$APP_GATEWAY_URL/health"
 open "$APP_GATEWAY_URL"
 ```
+
+`infra/final` defaults to azd environment name `final` and resource group `rg-securetalk-poc-swc-mx01-final`.
+
+2. Deploy baseline (`start`) for live walkthrough:
+
+```bash
+cd infra/start
+azd up
+```
+
+3. Apply managed identity step (`step1`) for live walkthrough:
+
+```bash
+cd infra/step1
+azd up
+```
+
+4. Reveal the predeployed hardened endpoint from item 1 (`APP_GATEWAY_URL` in `infra/final`).
+
+---
+
+## Stage details
+
+### `start`
+
+- App Service is public
+- Storage is public and app uses **connection string**
+- API key is stored directly in App Service app settings
+- No Key Vault/private endpoints/Application Gateway
+
+### `step1`
+
+- Enables system-assigned identity on App Service
+- Assigns `Storage Table Data Contributor` on Storage account
+- Switches storage mode to MI (`STORAGE_TABLES_URI`) and clears `STORAGE_CONNECTION_STRING`
+- API key remains in plain app setting
+
+### `final`
+
+`final` runs baseline provisioning/deploy first, then applies full hardening:
+
+- Storage MI/RBAC configuration (`Storage Table Data Contributor`)
+- Key Vault creation and secret seeding (`AssetServiceApiKey`)
+- Key Vault RBAC:
+  - `Key Vault Administrator` to `KEYVAULT_ADMIN_OBJECT_ID` (defaults to current Azure CLI principal)
+  - `Key Vault Secrets User` to the App Service managed identity
+- `ASSET_SERVICE_API_KEY` switched to Key Vault reference
+- Private endpoints for:
+  - App Service (`sites`)
+  - Key Vault (`vault`)
+  - Storage Table (`table`)
+- Private DNS zones + links:
+  - `privatelink.azurewebsites.net`
+  - `privatelink.vaultcore.azure.net`
+  - `privatelink.table.core.windows.net`
+- App Gateway (default SKU `Standard_v2`, override with `AZURE_APP_GATEWAY_SKU`)
+- Public access disabled on App Service, Key Vault, and Storage
 
 ---
 
 ## Notes
 
 - This demo is intentionally staged; not all controls are enabled at `start`.
-- Each stage folder has its own `azure.yaml`; run `azd up` from that folder to advance the presentation.
-- If subscription policy forces `allowSharedKeyAccess=false`, the app falls back to in-memory comment/ticket persistence in `start` stage.
-- If re-running `step2` after Key Vault is already private, run `azd env set ASSET_SERVICE_API_KEY_VALUE <actual-key>` in `infra/step2` before `azd up`.
-- `step2` currently exposes Application Gateway over HTTP for demo simplicity; add TLS listener/certificate before production use.
-- With current `step2` design, direct `azd deploy` to App Service is expected to fail unless you also private-link the `scm` endpoint.
+- If subscription policy forces `allowSharedKeyAccess=false`, `start` falls back to in-memory comment/ticket persistence.
+- If re-running `final` after Key Vault is already private, pass the secret value as a one-time shell variable when you run `azd up` (do not persist it with `azd env set`):
+
+```bash
+cd infra/final
+ASSET_SERVICE_API_KEY_VALUE='<actual-key>' azd up
+```
+
+- `final` exposes Application Gateway over HTTP for demo simplicity; add TLS listener/certificate before production use.
