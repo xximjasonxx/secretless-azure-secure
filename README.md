@@ -56,27 +56,54 @@ az login
 azd auth login
 ```
 
+Run all commands below from the repository root.
+
+---
+
+## Course run order
+
+1. Stage 0 baseline:
+
+```bash
+azd up
+```
+
+2. Stage 1 hardening:
+
+```bash
+./infra/step1/apply.sh
+```
+
+3. Stage 2 private networking:
+
+```bash
+./infra/step2/apply.sh
+```
+
 ---
 
 ## Stage 0: Initial standup (`azd up`)
 
-`infra/start/apply.sh` always uses the currently active `az account` subscription context.
-If it needs to create a missing configured resource group, location defaults to `swedencentral` unless overridden by `--location` or `AZURE_LOCATION`.
-
-Use configured RG (auto-created if it does not exist in the active subscription):
+Run:
 
 ```bash
-azd env set AZURE_RESOURCE_GROUP rg-securetalk-poc-swc-mx01
-chmod +x infra/start/apply.sh
-./infra/start/apply.sh
+azd up
 ```
 
-If you want azd to create an RG automatically, set `AZURE_RESOURCE_GROUP` to empty:
+Defaults:
+
+- Resource group: `rg-securetalk-poc-swc-mx01` (when `AZURE_RESOURCE_GROUP` is not set)
+- Location: `swedencentral`
+
+If your subscription policy does not allow `swedencentral`, update `infra/start/main.parameters.json` and run `azd up` again.
+For non-`demo` environments, the default RG becomes `rg-securetalk-poc-swc-mx01-<env>`.
+You can still set an explicit RG name per environment before running `azd up`:
 
 ```bash
-azd env set AZURE_RESOURCE_GROUP ""
-./infra/start/apply.sh
+azd env set AZURE_RESOURCE_GROUP <env-specific-rg-name>
 ```
+
+When overriding `AZURE_RESOURCE_GROUP`, use an RG in `swedencentral` or update `infra/start/main.parameters.json` location to match the RG's region.
 
 ### `start` stage posture
 
@@ -93,7 +120,6 @@ azd env set AZURE_RESOURCE_GROUP ""
 Run:
 
 ```bash
-chmod +x infra/step1/apply.sh
 ./infra/step1/apply.sh
 ```
 
@@ -111,7 +137,6 @@ What it changes:
 Run:
 
 ```bash
-chmod +x infra/step2/apply.sh
 ./infra/step2/apply.sh
 ```
 

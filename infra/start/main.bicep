@@ -6,7 +6,7 @@ param environmentName string
 @description('Primary Azure region for this environment.')
 param location string
 
-@description('Optional existing resource group name to deploy into. Leave empty to create a deterministic RG name.')
+@description('Optional existing resource group name override.')
 param existingResourceGroupName string = ''
 
 @description('External asset service URL. 404 responses are tolerated by the app for demo mode.')
@@ -24,7 +24,10 @@ param ticketsTableName string = 'assettickets'
 
 // Deterministic short token keeps names stable and repeatable.
 var token = toLower(take(uniqueString(subscription().id, environmentName, location), 6))
-var resourceGroupName = empty(existingResourceGroupName) ? 'rg-${environmentName}-${token}' : existingResourceGroupName
+var defaultResourceGroupName = environmentName == 'demo'
+  ? 'rg-securetalk-poc-swc-mx01'
+  : 'rg-securetalk-poc-swc-mx01-${environmentName}'
+var resourceGroupName = empty(existingResourceGroupName) ? defaultResourceGroupName : existingResourceGroupName
 var resolvedAssetServiceApiKey = empty(assetServiceApiKey) ? 'demo-insecure-api-key' : assetServiceApiKey
 var tags = {
   'azd-env-name': environmentName
@@ -33,7 +36,7 @@ var tags = {
   'SecurityControl': 'Ignore'
 }
 
-resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = if (empty(existingResourceGroupName)) {
+resource rg 'Microsoft.Resources/resourceGroups@2023-07-01' = {
   name: resourceGroupName
   location: location
   tags: tags
