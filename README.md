@@ -60,18 +60,21 @@ azd auth login
 
 ## Stage 0: Initial standup (`azd up`)
 
+`infra/start/apply.sh` always uses the currently active `az account` subscription context.
+
 Use existing RG:
 
 ```bash
 azd env set AZURE_RESOURCE_GROUP rg-securetalk-poc-swc-mx01
-azd up
+chmod +x infra/start/apply.sh
+./infra/start/apply.sh
 ```
 
 If you want azd to create an RG automatically, set `AZURE_RESOURCE_GROUP` to empty:
 
 ```bash
 azd env set AZURE_RESOURCE_GROUP ""
-azd up
+./infra/start/apply.sh
 ```
 
 ### `start` stage posture
