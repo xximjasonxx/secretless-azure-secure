@@ -3,9 +3,39 @@ set -euo pipefail
 
 STAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+is_invalid_env_value() {
+  local value="${1:-}"
+  [[ -z "$value" ]] && return 0
+  [[ "$value" == *"ERROR:"* ]] && return 0
+  [[ "$value" == *$'\n'* ]] && return 0
+  return 1
+}
+
 get_env_value() {
   local key="$1"
-  azd env get-value "$key" --cwd "$STAGE_DIR"
+  local value
+
+  if ! value="$(azd env get-value "$key" --cwd "$STAGE_DIR" 2>/dev/null)"; then
+    return 1
+  fi
+
+  if is_invalid_env_value "$value"; then
+    return 1
+  fi
+
+  printf '%s' "$value"
+}
+
+resolve_value_or_default() {
+  local value="${1:-}"
+  local default_value="$2"
+
+  if is_invalid_env_value "$value"; then
+    printf '%s' "$default_value"
+    return
+  fi
+
+  printf '%s' "$value"
 }
 
 discover_webapp_name() {
@@ -46,24 +76,24 @@ discover_storage_name() {
   exit 1
 }
 
-RG="${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP 2>/dev/null || true)}"
+RG="$(resolve_value_or_default "${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP || true)}" "")"
 if [[ -z "$RG" ]]; then
   echo "ERROR: AZURE_RESOURCE_GROUP is not set. Run 'azd up' from this folder first."
   exit 1
 fi
 
-APP_NAME="${AZURE_WEBAPP_NAME:-}"
+APP_NAME="$(resolve_value_or_default "${AZURE_WEBAPP_NAME:-}" "")"
 if [[ -z "$APP_NAME" ]]; then
   APP_NAME="$(discover_webapp_name "$RG")"
 fi
 
-STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-}"
+STORAGE_NAME="$(resolve_value_or_default "${AZURE_STORAGE_ACCOUNT_NAME:-}" "")"
 if [[ -z "$STORAGE_NAME" ]]; then
   STORAGE_NAME="$(discover_storage_name "$RG")"
 fi
 
-COMMENTS_TABLE="${ASSET_COMMENTS_TABLE:-$(get_env_value ASSET_COMMENTS_TABLE 2>/dev/null || echo assetcomments)}"
-TICKETS_TABLE="${ASSET_TICKETS_TABLE:-$(get_env_value ASSET_TICKETS_TABLE 2>/dev/null || echo assettickets)}"
+COMMENTS_TABLE="$(resolve_value_or_default "${ASSET_COMMENTS_TABLE:-$(get_env_value ASSET_COMMENTS_TABLE || true)}" "assetcomments")"
+TICKETS_TABLE="$(resolve_value_or_default "${ASSET_TICKETS_TABLE:-$(get_env_value ASSET_TICKETS_TABLE || true)}" "assettickets")"
 
 echo "Applying step1 managed identity + RBAC changes..."
 echo "Resource group: $RG"

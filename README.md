@@ -156,5 +156,6 @@ ASSET_SERVICE_API_KEY_VALUE='<actual-key>' azd up
 ```
 
 - `infra/final` now also supports re-running `azd up` from outside the private network without that override; if the existing Key Vault secret cannot be read, the deploy preserves the current secret value instead of failing.
+- `infra/final/prepare-deploy.sh` now wraps the full `final` stage flow (`azd restore`, `azd provision`, `azd package --all`, `azd deploy --all`, and `apply.sh`); it reopens App Service public access only when needed and attempts to restore the hardened final configuration automatically if the rerun fails mid-flight.
 
 - `final` exposes Application Gateway over HTTP for demo simplicity; add TLS listener/certificate before production use.

@@ -4,9 +4,39 @@ set -euo pipefail
 STAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$STAGE_DIR/../.." && pwd)"
 
+is_invalid_env_value() {
+  local value="${1:-}"
+  [[ -z "$value" ]] && return 0
+  [[ "$value" == *"ERROR:"* ]] && return 0
+  [[ "$value" == *$'\n'* ]] && return 0
+  return 1
+}
+
 get_env_value() {
   local key="$1"
-  azd env get-value "$key" --cwd "$STAGE_DIR"
+  local value
+
+  if ! value="$(azd env get-value "$key" --cwd "$STAGE_DIR" 2>/dev/null)"; then
+    return 1
+  fi
+
+  if is_invalid_env_value "$value"; then
+    return 1
+  fi
+
+  printf '%s' "$value"
+}
+
+resolve_value_or_default() {
+  local value="${1:-}"
+  local default_value="$2"
+
+  if is_invalid_env_value "$value"; then
+    printf '%s' "$default_value"
+    return
+  fi
+
+  printf '%s' "$value"
 }
 
 discover_webapp_name() {
@@ -75,35 +105,35 @@ ensure_role_assignment() {
     -o none
 }
 
-RG="${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP 2>/dev/null || true)}"
+RG="$(resolve_value_or_default "${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP || true)}" "")"
 if [[ -z "$RG" ]]; then
   echo "ERROR: AZURE_RESOURCE_GROUP is not set. Run 'azd up' from this folder first."
   exit 1
 fi
 
-APP_NAME="${AZURE_WEBAPP_NAME:-}"
+APP_NAME="$(resolve_value_or_default "${AZURE_WEBAPP_NAME:-}" "")"
 if [[ -z "$APP_NAME" ]]; then
   APP_NAME="$(discover_webapp_name "$RG")"
 fi
 
-STORAGE_NAME="${AZURE_STORAGE_ACCOUNT_NAME:-}"
+STORAGE_NAME="$(resolve_value_or_default "${AZURE_STORAGE_ACCOUNT_NAME:-}" "")"
 if [[ -z "$STORAGE_NAME" ]]; then
   STORAGE_NAME="$(discover_storage_name "$RG")"
 fi
 
-LOCATION="${AZURE_LOCATION:-$(get_env_value AZURE_LOCATION 2>/dev/null || true)}"
+LOCATION="$(resolve_value_or_default "${AZURE_LOCATION:-$(get_env_value AZURE_LOCATION || true)}" "")"
 if [[ -z "$LOCATION" ]]; then
   LOCATION="$(az group show --name "$RG" --query location -o tsv)"
 fi
 
-COMMENTS_TABLE="${ASSET_COMMENTS_TABLE:-$(get_env_value ASSET_COMMENTS_TABLE 2>/dev/null || echo assetcomments)}"
-TICKETS_TABLE="${ASSET_TICKETS_TABLE:-$(get_env_value ASSET_TICKETS_TABLE 2>/dev/null || echo assettickets)}"
-KEYVAULT_NAME="${AZURE_KEY_VAULT_NAME:-}"
-KEYVAULT_ADMIN_OBJECT_ID="${KEYVAULT_ADMIN_OBJECT_ID:-}"
-KEYVAULT_ADMIN_PRINCIPAL_TYPE="${KEYVAULT_ADMIN_PRINCIPAL_TYPE:-}"
-SECRET_NAME="${ASSET_SERVICE_KEY_SECRET_NAME:-AssetServiceApiKey}"
-APP_GATEWAY_NAME="${AZURE_APP_GATEWAY_NAME:-agw-${APP_NAME}}"
-APP_GATEWAY_SKU="${AZURE_APP_GATEWAY_SKU:-Standard_v2}"
+COMMENTS_TABLE="$(resolve_value_or_default "${ASSET_COMMENTS_TABLE:-$(get_env_value ASSET_COMMENTS_TABLE || true)}" "assetcomments")"
+TICKETS_TABLE="$(resolve_value_or_default "${ASSET_TICKETS_TABLE:-$(get_env_value ASSET_TICKETS_TABLE || true)}" "assettickets")"
+KEYVAULT_NAME="$(resolve_value_or_default "${AZURE_KEY_VAULT_NAME:-$(get_env_value AZURE_KEY_VAULT_NAME || true)}" "")"
+KEYVAULT_ADMIN_OBJECT_ID="$(resolve_value_or_default "${KEYVAULT_ADMIN_OBJECT_ID:-$(get_env_value KEYVAULT_ADMIN_OBJECT_ID || true)}" "")"
+KEYVAULT_ADMIN_PRINCIPAL_TYPE="$(resolve_value_or_default "${KEYVAULT_ADMIN_PRINCIPAL_TYPE:-$(get_env_value KEYVAULT_ADMIN_PRINCIPAL_TYPE || true)}" "")"
+SECRET_NAME="$(resolve_value_or_default "${ASSET_SERVICE_KEY_SECRET_NAME:-AssetServiceApiKey}" "AssetServiceApiKey")"
+APP_GATEWAY_NAME="$(resolve_value_or_default "${AZURE_APP_GATEWAY_NAME:-agw-${APP_NAME}}" "agw-${APP_NAME}")"
+APP_GATEWAY_SKU="$(resolve_value_or_default "${AZURE_APP_GATEWAY_SKU:-Standard_v2}" "Standard_v2")"
 
 echo "Applying final secure configuration..."
 echo "Resource group: $RG"
