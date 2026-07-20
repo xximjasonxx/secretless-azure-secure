@@ -38,6 +38,7 @@ var vnetName = 'vnet-final-${take(uniqueString(resourceGroup().id, appName), 6)}
 var appGatewaySubnetName = 'snet-appgw'
 var privateEndpointSubnetName = 'snet-pe'
 var appIntegrationSubnetName = 'snet-app'
+var appGatewayPublicIpDnsLabel = toLower('agw-${take(uniqueString(subscription().id, resourceGroup().id, appName), 26)}')
 
 resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
   name: vnetName
@@ -90,6 +91,9 @@ resource appGatewayPublicIp 'Microsoft.Network/publicIPAddresses@2024-05-01' = {
   }
   properties: {
     publicIPAllocationMethod: 'Static'
+    dnsSettings: {
+      domainNameLabel: appGatewayPublicIpDnsLabel
+    }
   }
 }
 
@@ -355,6 +359,7 @@ resource tableZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups
 }
 
 output applicationGatewayPublicIp string = appGatewayPublicIp.properties.ipAddress
+output applicationGatewayPublicFqdn string = appGatewayPublicIp.properties.dnsSettings.fqdn
 output applicationGatewayPublicIpName string = appGatewayPublicIp.name
 output finalVnetName string = vnet.name
 output keyVaultName string = keyVault.name

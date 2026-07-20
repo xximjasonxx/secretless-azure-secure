@@ -80,6 +80,11 @@ curl -sS "$APP_GATEWAY_URL/health"
 open "$APP_GATEWAY_URL"
 ```
 
+`infra/final/apply.sh` now resolves the Application Gateway public endpoint and writes:
+- `APP_GATEWAY_URL` (primary URL)
+- `API_URL` (same value for compatibility with azd endpoint lookups)
+- `APP_GATEWAY_FQDN` and `APP_GATEWAY_IP` when available
+
 `infra/final` defaults to azd environment name `final` and resource group `rg-securetalk-poc-swc-mx01-final`.
 
 2. Deploy baseline (`start`) for live walkthrough:
