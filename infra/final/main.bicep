@@ -12,9 +12,9 @@ param keyVaultName string = toLower('kv${take(uniqueString(resourceGroup().id, a
 @description('Existing Storage account name.')
 param storageAccountName string
 
-@description('Asset service API key value copied into Key Vault during final stage.')
+@description('Asset service API key value copied into Key Vault during final stage. Leave empty to keep the existing secret value.')
 @secure()
-param assetServiceApiKeySecretValue string
+param assetServiceApiKeySecretValue string = ''
 
 @description('Object ID granted Key Vault Administrator on the final Key Vault.')
 param keyVaultAdminObjectId string
@@ -183,7 +183,7 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
-resource assetServiceApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = {
+resource assetServiceApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01' = if (!empty(assetServiceApiKeySecretValue)) {
   parent: keyVault
   name: assetServiceApiKeySecretName
   properties: {

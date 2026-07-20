@@ -163,6 +163,7 @@ ASSET_SERVICE_API_KEY_VALUE="${ASSET_SERVICE_API_KEY_VALUE:-$(az webapp config a
   --name "$APP_NAME" \
   --query "[?name=='ASSET_SERVICE_API_KEY'].value | [0]" \
   -o tsv)}"
+PRESERVE_EXISTING_KEYVAULT_SECRET="false"
 
 KEYVAULT_REF_REGEX='^@Microsoft\.KeyVault\(SecretUri=([^)]+)\)$'
 if [[ "$ASSET_SERVICE_API_KEY_VALUE" =~ $KEYVAULT_REF_REGEX ]]; then
@@ -171,13 +172,14 @@ if [[ "$ASSET_SERVICE_API_KEY_VALUE" =~ $KEYVAULT_REF_REGEX ]]; then
   if [[ -n "$EXISTING_SECRET_VALUE" ]]; then
     ASSET_SERVICE_API_KEY_VALUE="$EXISTING_SECRET_VALUE"
   else
-    echo "Unable to resolve existing Key Vault reference for ASSET_SERVICE_API_KEY."
-    echo "Set ASSET_SERVICE_API_KEY_VALUE to provide the secret value explicitly and retry."
-    exit 1
+    echo "Could not read existing Key Vault secret value from this network context."
+    echo "Continuing without secret reseed; existing Key Vault secret value will be preserved."
+    PRESERVE_EXISTING_KEYVAULT_SECRET="true"
+    ASSET_SERVICE_API_KEY_VALUE=""
   fi
 fi
 
-if [[ -z "$ASSET_SERVICE_API_KEY_VALUE" ]]; then
+if [[ "$PRESERVE_EXISTING_KEYVAULT_SECRET" != "true" && -z "$ASSET_SERVICE_API_KEY_VALUE" ]]; then
   ASSET_SERVICE_API_KEY_VALUE="demo-insecure-api-key"
 fi
 

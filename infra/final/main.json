@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.44.1.10279",
-      "templateHash": "3916706614081827593"
+      "templateHash": "16012393227348328574"
     }
   },
   "parameters": {
@@ -37,8 +37,9 @@
     },
     "assetServiceApiKeySecretValue": {
       "type": "securestring",
+      "defaultValue": "",
       "metadata": {
-        "description": "Asset service API key value copied into Key Vault during final stage."
+        "description": "Asset service API key value copied into Key Vault during final stage. Leave empty to keep the existing secret value."
       }
     },
     "keyVaultAdminObjectId": {
@@ -244,6 +245,7 @@
       }
     },
     {
+      "condition": "[not(empty(parameters('assetServiceApiKeySecretValue')))]",
       "type": "Microsoft.KeyVault/vaults/secrets",
       "apiVersion": "2023-07-01",
       "name": "[format('{0}/{1}', parameters('keyVaultName'), parameters('assetServiceApiKeySecretName'))]",

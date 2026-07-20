@@ -155,4 +155,6 @@ cd infra/final
 ASSET_SERVICE_API_KEY_VALUE='<actual-key>' azd up
 ```
 
+- `infra/final` now also supports re-running `azd up` from outside the private network without that override; if the existing Key Vault secret cannot be read, the deploy preserves the current secret value instead of failing.
+
 - `final` exposes Application Gateway over HTTP for demo simplicity; add TLS listener/certificate before production use.
