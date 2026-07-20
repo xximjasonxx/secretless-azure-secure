@@ -7,18 +7,12 @@ infra:
 
 workflows:
   up:
-    - azd: restore
-    - azd: provision --location swedencentral
-    - azd: package --all
-    - azd: deploy --all
-
-hooks:
-  postdeploy:
-    shell: sh
-    run: bash ./apply.sh
-  postup:
-    shell: sh
-    run: bash ./apply.sh
+    steps:
+      - azd: restore
+      - azd: provision --location swedencentral
+      - azd: package --all
+      - azd: deploy --all
+      - run: bash ./apply.sh
 
 services:
   api:
