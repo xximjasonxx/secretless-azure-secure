@@ -202,7 +202,7 @@ DEPLOY_OUTPUTS="$(az deployment group create \
   --resource-group "$RG" \
   --template-file "$REPO_ROOT/infra/final/main.bicep" \
   --parameters "${DEPLOY_PARAMS[@]}" \
-  --query "[properties.outputs.keyVaultName.value,properties.outputs.keyVaultUri.value,properties.outputs.finalVnetName.value,properties.outputs.applicationGatewayPublicIpName.value]" \
+  --query "[properties.outputs.keyVaultName.value,properties.outputs.keyVaultUri.value,properties.outputs.finalVnetName.value,properties.outputs.applicationGatewayPublicIpName.value,properties.outputs.applicationGatewayPublicFqdn.value]" \
   --only-show-errors \
   -o tsv)"
 DEPLOY_EXIT_CODE=$?
@@ -218,6 +218,7 @@ KEYVAULT_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '1p')"
 KEYVAULT_URI="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '2p')"
 VNET_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '3p')"
 APP_GATEWAY_PUBLIC_IP_NAME="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '4p')"
+APP_GATEWAY_FQDN="$(printf '%s\n' "$DEPLOY_OUTPUTS" | sed -n '5p')"
 if [[ -z "$KEYVAULT_NAME" || -z "$KEYVAULT_URI" || -z "$VNET_NAME" || -z "$APP_GATEWAY_PUBLIC_IP_NAME" ]]; then
   echo "ERROR: Missing expected deployment outputs from final infrastructure deployment."
   exit 1
@@ -280,6 +281,24 @@ APP_GATEWAY_IP="$(az network public-ip show \
   --query ipAddress \
   -o tsv)"
 
+if [[ -z "$APP_GATEWAY_FQDN" ]]; then
+  APP_GATEWAY_FQDN="$(az network public-ip show \
+    --resource-group "$RG" \
+    --name "$APP_GATEWAY_PUBLIC_IP_NAME" \
+    --query dnsSettings.fqdn \
+    -o tsv 2>/dev/null || true)"
+fi
+
+APP_GATEWAY_HOST="$APP_GATEWAY_FQDN"
+if [[ -z "$APP_GATEWAY_HOST" ]]; then
+  APP_GATEWAY_HOST="$APP_GATEWAY_IP"
+fi
+
+if [[ -z "$APP_GATEWAY_HOST" ]]; then
+  echo "ERROR: Could not resolve a public endpoint for Application Gateway '$APP_GATEWAY_NAME'."
+  exit 1
+fi
+
 echo "Updating app settings for final secure mode..."
 az webapp config appsettings set \
   --resource-group "$RG" \
@@ -294,10 +313,18 @@ az webapp config appsettings set \
   --only-show-errors \
   -o none
 
-if [[ -n "$APP_GATEWAY_IP" ]]; then
-  azd env set APP_GATEWAY_URL "http://${APP_GATEWAY_IP}" --cwd "$STAGE_DIR" >/dev/null
-  echo "Application Gateway URL: http://${APP_GATEWAY_IP}"
+APP_GATEWAY_URL="http://${APP_GATEWAY_HOST}"
+azd env set APP_GATEWAY_URL "$APP_GATEWAY_URL" --cwd "$STAGE_DIR" >/dev/null
+azd env set API_URL "$APP_GATEWAY_URL" --cwd "$STAGE_DIR" >/dev/null
+if [[ -n "$APP_GATEWAY_FQDN" ]]; then
+  azd env set APP_GATEWAY_FQDN "$APP_GATEWAY_FQDN" --cwd "$STAGE_DIR" >/dev/null
 fi
+if [[ -n "$APP_GATEWAY_IP" ]]; then
+  azd env set APP_GATEWAY_IP "$APP_GATEWAY_IP" --cwd "$STAGE_DIR" >/dev/null
+fi
+echo "Application Gateway URL: $APP_GATEWAY_URL"
+echo "Open in browser:"
+echo "$APP_GATEWAY_URL"
 
 azd env set AZURE_WEBAPP_NAME "$APP_NAME" --cwd "$STAGE_DIR" >/dev/null
 azd env set AZURE_STORAGE_ACCOUNT_NAME "$STORAGE_NAME" --cwd "$STAGE_DIR" >/dev/null

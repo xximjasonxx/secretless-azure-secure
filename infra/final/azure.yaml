@@ -16,6 +16,9 @@ hooks:
   postdeploy:
     shell: sh
     run: bash ./apply.sh
+  postup:
+    shell: sh
+    run: bash ./apply.sh
 
 services:
   api:

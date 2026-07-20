@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.44.1.10279",
-      "templateHash": "17186813901153261768"
+      "templateHash": "3916706614081827593"
     }
   },
   "parameters": {
@@ -81,6 +81,7 @@
     "appGatewaySubnetName": "snet-appgw",
     "privateEndpointSubnetName": "snet-pe",
     "appIntegrationSubnetName": "snet-app",
+    "appGatewayPublicIpDnsLabel": "[toLower(format('agw-{0}', take(uniqueString(subscription().id, resourceGroup().id, parameters('appName')), 26)))]",
     "keyVaultAdministratorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')]",
     "keyVaultSecretsUserRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]"
   },
@@ -138,7 +139,10 @@
         "name": "Standard"
       },
       "properties": {
-        "publicIPAllocationMethod": "Static"
+        "publicIPAllocationMethod": "Static",
+        "dnsSettings": {
+          "domainNameLabel": "[variables('appGatewayPublicIpDnsLabel')]"
+        }
       }
     },
     {
@@ -437,6 +441,10 @@
     "applicationGatewayPublicIp": {
       "type": "string",
       "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))), '2024-05-01').ipAddress]"
+    },
+    "applicationGatewayPublicFqdn": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Network/publicIPAddresses', format('pip-appgw-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6))), '2024-05-01').dnsSettings.fqdn]"
     },
     "applicationGatewayPublicIpName": {
       "type": "string",
