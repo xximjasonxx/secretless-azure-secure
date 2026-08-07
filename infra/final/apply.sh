@@ -305,6 +305,17 @@ if [[ -z "$EXISTING_APP_GATEWAY" ]]; then
     --priority 100 \
     --only-show-errors \
     -o none
+
+  # App Service requires the Host header to match its hostname for SNI routing.
+  # `az network application-gateway create` doesn't expose this flag, so update
+  # the default HTTP settings immediately after creation.
+  az network application-gateway http-settings update \
+    --resource-group "$RG" \
+    --gateway-name "$APP_GATEWAY_NAME" \
+    --name "appGatewayBackendHttpSettings" \
+    --host-name-from-backend-pool true \
+    --only-show-errors \
+    -o none
 fi
 
 APP_GATEWAY_IP="$(az network public-ip show \

@@ -8,7 +8,18 @@ infra:
 workflows:
   up:
     steps:
-      - run: bash ./prepare-deploy.sh
+      - azd: restore
+      - azd: provision --location swedencentral
+      - azd: package --all
+      - azd: deploy --all
+
+hooks:
+  predeploy:
+    shell: sh
+    run: bash ./prepare-deploy.sh
+  postdeploy:
+    shell: sh
+    run: bash ./apply.sh
 
 services:
   api:

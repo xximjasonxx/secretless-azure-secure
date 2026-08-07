@@ -4,8 +4,6 @@ set -euo pipefail
 STAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_ID=""
 APP_NAME=""
-RECOVER_ON_FAILURE="false"
-PROVISION_LOCATION=""
 
 is_invalid_env_value() {
   local value="${1:-}"
@@ -60,29 +58,6 @@ discover_webapp_name() {
   exit 1
 }
 
-reharden_app_service_on_failure() {
-  local exit_code=$?
-
-  if [[ $exit_code -ne 0 && "$RECOVER_ON_FAILURE" == "true" ]]; then
-    echo "azd up failed; attempting to restore the hardened final configuration..."
-
-    if bash "$STAGE_DIR/apply.sh"; then
-      exit "$exit_code"
-    fi
-
-    if [[ -n "$APP_ID" ]]; then
-      echo "Recovery apply failed; restoring App Service public access to Disabled..."
-      az resource update \
-        --ids "$APP_ID" \
-        --set properties.publicNetworkAccess=Disabled \
-        --only-show-errors \
-        -o none
-    fi
-  fi
-
-  exit "$exit_code"
-}
-
 wait_for_public_health() {
   local health_url="$1"
   local status_code=""
@@ -97,26 +72,12 @@ wait_for_public_health() {
     sleep 5
   done
 
-  echo "WARNING: App Service public endpoint did not return 200 after reopening. Continuing with azd deploy."
+  echo "WARNING: App Service public endpoint did not return 200 after reopening."
 }
-
-trap reharden_app_service_on_failure EXIT
-
-run_deploy_pipeline() {
-  azd package --all
-  azd deploy --all
-  bash ./apply.sh
-}
-
-azd restore
-RECOVER_ON_FAILURE="true"
-PROVISION_LOCATION="$(resolve_value_or_default "${AZURE_LOCATION:-$(get_env_value AZURE_LOCATION || true)}" "swedencentral")"
-azd provision --location "$PROVISION_LOCATION"
 
 RG="$(resolve_value_or_default "${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP || true)}" "")"
 if [[ -z "$RG" ]]; then
   echo "Skipping App Service reopen: AZURE_RESOURCE_GROUP is not set yet."
-  run_deploy_pipeline
   exit 0
 fi
 
@@ -127,14 +88,12 @@ fi
 
 if [[ -z "$APP_NAME" ]]; then
   echo "Skipping App Service reopen: no App Service found in resource group '$RG' yet."
-  run_deploy_pipeline
   exit 0
 fi
 
 APP_ID="$(az webapp show --resource-group "$RG" --name "$APP_NAME" --query id -o tsv 2>/dev/null || true)"
 if [[ -z "$APP_ID" ]]; then
   echo "Skipping App Service reopen: could not resolve App Service '$APP_NAME'."
-  run_deploy_pipeline
   exit 0
 fi
 
@@ -152,5 +111,3 @@ if [[ "$CURRENT_PUBLIC_NETWORK_ACCESS" == "Disabled" ]]; then
 else
   echo "App Service public access already open for azd deploy."
 fi
-
-run_deploy_pipeline

@@ -67,11 +67,39 @@ app.MapGet("/api/mission-control", () =>
     var storageConnectionString = Environment.GetEnvironmentVariable("STORAGE_CONNECTION_STRING");
     var storageTablesUri = Environment.GetEnvironmentVariable("STORAGE_TABLES_URI");
     var apiKeyValue = Environment.GetEnvironmentVariable("ASSET_SERVICE_API_KEY");
-    var apiKeySource = string.IsNullOrWhiteSpace(apiKeyValue)
-        ? "missing"
-        : apiKeyValue.StartsWith("@Microsoft.KeyVault(", StringComparison.OrdinalIgnoreCase)
-            ? "key-vault-reference"
-            : "app-setting-plain-text";
+    // App Service resolves KV references before the app sees the env var, so
+    // Environment.GetEnvironmentVariable always returns the resolved secret — never the
+    // "@Microsoft.KeyVault(...)" string.  WEBSITE_KEYVAULT_REFERENCES is a system env var
+    // injected by App Service that lists every setting whose raw value is a KV reference.
+    var kvRefsJson = Environment.GetEnvironmentVariable("WEBSITE_KEYVAULT_REFERENCES");
+    string apiKeySource;
+    if (string.IsNullOrWhiteSpace(apiKeyValue))
+    {
+        apiKeySource = "missing";
+    }
+    else if (apiKeyValue.StartsWith("@Microsoft.KeyVault(", StringComparison.OrdinalIgnoreCase))
+    {
+        // Reference is present but App Service failed to resolve it.
+        apiKeySource = "key-vault-reference-unresolved";
+    }
+    else if (!string.IsNullOrWhiteSpace(kvRefsJson))
+    {
+        try
+        {
+            using var kvDoc = JsonDocument.Parse(kvRefsJson);
+            apiKeySource = kvDoc.RootElement.TryGetProperty("ASSET_SERVICE_API_KEY", out _)
+                ? "key-vault-reference"
+                : "app-setting-plain-text";
+        }
+        catch
+        {
+            apiKeySource = "app-setting-plain-text";
+        }
+    }
+    else
+    {
+        apiKeySource = "app-setting-plain-text";
+    }
 
     var networkProfile = stage switch
     {
