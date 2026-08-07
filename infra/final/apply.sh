@@ -110,6 +110,7 @@ if [[ -z "$RG" ]]; then
   echo "ERROR: AZURE_RESOURCE_GROUP is not set. Run 'azd up' from this folder first."
   exit 1
 fi
+SUBSCRIPTION_ID="$(az account show --query id -o tsv)"
 
 APP_NAME="$(resolve_value_or_default "${AZURE_WEBAPP_NAME:-}" "")"
 if [[ -z "$APP_NAME" ]]; then
@@ -352,6 +353,9 @@ az webapp config appsettings set \
     STORAGE_TABLES_URI="$TABLES_URI" \
     ASSET_COMMENTS_TABLE="$COMMENTS_TABLE" \
     ASSET_TICKETS_TABLE="$TICKETS_TABLE" \
+    AZURE_SUBSCRIPTION_ID="$SUBSCRIPTION_ID" \
+    AZURE_RESOURCE_GROUP="$RG" \
+    AZURE_WEBAPP_NAME="$APP_NAME" \
     ASSET_SERVICE_API_KEY="@Microsoft.KeyVault(SecretUri=${SECRET_URI})" \
   --only-show-errors \
   -o none

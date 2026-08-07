@@ -61,45 +61,15 @@ app.MapGet("/api/assets/search", async (string? q, IHttpClientFactory httpClient
     });
 });
 
-app.MapGet("/api/mission-control", () =>
+app.MapGet("/api/mission-control", async (CancellationToken cancellationToken) =>
 {
     var stage = Environment.GetEnvironmentVariable("APP_SECURITY_STAGE") ?? "start";
     var storageConnectionString = Environment.GetEnvironmentVariable("STORAGE_CONNECTION_STRING");
     var storageTablesUri = Environment.GetEnvironmentVariable("STORAGE_TABLES_URI");
     var apiKeyValue = Environment.GetEnvironmentVariable("ASSET_SERVICE_API_KEY");
-    // App Service resolves KV references before the app sees the env var, so
-    // Environment.GetEnvironmentVariable always returns the resolved secret — never the
-    // "@Microsoft.KeyVault(...)" string.  WEBSITE_KEYVAULT_REFERENCES is a system env var
-    // injected by App Service that lists every setting whose raw value is a KV reference.
-    var kvRefsJson = Environment.GetEnvironmentVariable("WEBSITE_KEYVAULT_REFERENCES");
-    string apiKeySource;
-    if (string.IsNullOrWhiteSpace(apiKeyValue))
-    {
-        apiKeySource = "missing";
-    }
-    else if (apiKeyValue.StartsWith("@Microsoft.KeyVault(", StringComparison.OrdinalIgnoreCase))
-    {
-        // Reference is present but App Service failed to resolve it.
-        apiKeySource = "key-vault-reference-unresolved";
-    }
-    else if (!string.IsNullOrWhiteSpace(kvRefsJson))
-    {
-        try
-        {
-            using var kvDoc = JsonDocument.Parse(kvRefsJson);
-            apiKeySource = kvDoc.RootElement.TryGetProperty("ASSET_SERVICE_API_KEY", out _)
-                ? "key-vault-reference"
-                : "app-setting-plain-text";
-        }
-        catch
-        {
-            apiKeySource = "app-setting-plain-text";
-        }
-    }
-    else
-    {
-        apiKeySource = "app-setting-plain-text";
-    }
+    var apiKeySource = await MissionAzureConfiguration.GetApiKeySourceAsync(
+        apiKeyValue,
+        cancellationToken);
 
     var networkProfile = stage switch
     {
@@ -734,4 +704,104 @@ public sealed class MissionRuntimeState
     public long FallbackReads;
     public long FallbackWrites;
     public ConcurrentQueue<MissionEvent> Events { get; } = new();
+}
+
+public static class MissionAzureConfiguration
+{
+    private static readonly HttpClient Client = new();
+    private static readonly ManagedIdentityCredential Credential = new();
+    private static readonly SemaphoreSlim CacheLock = new(1, 1);
+    private static string? cachedApiKeySource;
+    private static DateTimeOffset cacheExpiresAt;
+
+    public static async Task<string> GetApiKeySourceAsync(
+        string? resolvedApiKey,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedApiKey))
+        {
+            return "missing";
+        }
+
+        if (resolvedApiKey.StartsWith("@Microsoft.KeyVault(", StringComparison.OrdinalIgnoreCase))
+        {
+            return "key-vault-reference-unresolved";
+        }
+
+        await CacheLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (cachedApiKeySource is not null && cacheExpiresAt > DateTimeOffset.UtcNow)
+            {
+                return cachedApiKeySource;
+            }
+
+            var subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
+            var resourceGroup = Environment.GetEnvironmentVariable("AZURE_RESOURCE_GROUP");
+            var appName = Environment.GetEnvironmentVariable("AZURE_WEBAPP_NAME");
+            if (string.IsNullOrWhiteSpace(subscriptionId)
+                || string.IsNullOrWhiteSpace(resourceGroup)
+                || string.IsNullOrWhiteSpace(appName))
+            {
+                return "configuration-unavailable";
+            }
+
+            try
+            {
+                var token = await Credential.GetTokenAsync(
+                    new Azure.Core.TokenRequestContext(["https://management.azure.com/.default"]),
+                    cancellationToken);
+                var requestUri =
+                    $"https://management.azure.com/subscriptions/{Uri.EscapeDataString(subscriptionId)}" +
+                    $"/resourceGroups/{Uri.EscapeDataString(resourceGroup)}" +
+                    $"/providers/Microsoft.Web/sites/{Uri.EscapeDataString(appName)}" +
+                    "/config/appsettings/list?api-version=2024-11-01";
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, requestUri);
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                    "Bearer",
+                    token.Token);
+                using var response = await Client.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return "configuration-unavailable";
+                }
+
+                await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var document = await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken);
+                if (!document.RootElement.TryGetProperty("properties", out var properties)
+                    || !properties.TryGetProperty("ASSET_SERVICE_API_KEY", out var rawValue))
+                {
+                    cachedApiKeySource = "missing";
+                }
+                else
+                {
+                    var rawApiKey = rawValue.GetString();
+                    cachedApiKeySource = !string.IsNullOrWhiteSpace(rawApiKey)
+                        && rawApiKey.StartsWith("@Microsoft.KeyVault(", StringComparison.OrdinalIgnoreCase)
+                        ? "key-vault-reference"
+                        : "app-setting-plain-text";
+                }
+
+                cacheExpiresAt = DateTimeOffset.UtcNow.AddMinutes(1);
+                return cachedApiKeySource;
+            }
+            catch (AuthenticationFailedException)
+            {
+                return "configuration-unavailable";
+            }
+            catch (HttpRequestException)
+            {
+                return "configuration-unavailable";
+            }
+            catch (JsonException)
+            {
+                return "configuration-unavailable";
+            }
+        }
+        finally
+        {
+            CacheLock.Release();
+        }
+    }
 }
