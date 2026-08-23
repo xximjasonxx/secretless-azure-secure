@@ -1,10 +1,6 @@
 # Azure App Security Journey Demo (.NET 8 + azd + Bicep)
 
-This repo models a staged security journey for an asset operations web app:
-
-1. **start** — intentionally less secure baseline (connection string + plain app setting API key, public endpoints).
-2. **step1** — move storage access to **Managed Identity + RBAC**.
-3. **final** — complete hardened posture (Key Vault reference + private endpoints + Application Gateway).
+This repo deploys a hardened asset operations web app with a separate authenticated Asset API.
 
 ---
 
@@ -17,8 +13,7 @@ This repo models a staged security journey for an asset operations web app:
 - Stores comments/tickets in **Azure Table Storage**
 - Calls an external asset API using `ASSET_SERVICE_API_KEY`
 - Supports both storage auth modes:
-  - `STORAGE_CONNECTION_STRING` (start)
-  - `STORAGE_TABLES_URI` + `DefaultAzureCredential` (step1/final)
+  - `STORAGE_TABLES_URI` + `DefaultAzureCredential`
 
 ---
 
@@ -26,19 +21,8 @@ This repo models a staged security journey for an asset operations web app:
 
 ```text
 infra/
-├── start/
-│   ├── azure.yaml
-│   ├── main.bicep
-│   ├── main.parameters.json
-│   └── modules/
-│       ├── app-start.bicep
-│       └── storage-start.bicep
-├── step1/
-│   ├── azure.yaml
-│   ├── apply.sh
-│   └── azd/
-│       ├── main.bicep
-│       └── main.parameters.json
+├── main.bicep
+├── main.parameters.json
 └── final/
     ├── azure.yaml
     ├── apply.sh
@@ -58,19 +42,14 @@ az login
 azd auth login
 ```
 
-Each stage is its own azd project. Run `azd up` from the stage folder.
+The repository has one azd deployment project: `infra/final`.
 
 Default environments:
-- `infra/final` uses `AZURE_ENV_NAME=final` and defaults to `rg-securetalk-poc-swc-mx01-final`
-- `infra/start` and `infra/step1` use `AZURE_ENV_NAME=demo` and default to `rg-securetalk-poc-swc-mx01`
+- The final deployment uses `AZURE_ENV_NAME=final` and defaults to `rg-securetalk-poc-swc-mx01-final`.
 
 ---
 
-## Required presentation order
-
-Deploy and verify the complete hardened environment **first**, then run baseline stages.
-
-1. Predeploy complete solution (`final`) first:
+## Deployment
 
 ```bash
 cd infra/final
@@ -80,6 +59,15 @@ curl -sS "$APP_GATEWAY_URL/health"
 open "$APP_GATEWAY_URL"
 ```
 
+The client uses the separately deployed Asset API Container App. The current default is:
+
+```text
+https://ca-secretless-api-6fe0f895.wonderfulsand-209444ec.swedencentral.azurecontainerapps.io/assets/search
+```
+
+If the Asset API Container App is recreated and receives a different ingress hostname, update the
+`assetServiceApiUrl` default in `infra/main.bicep` before running `azd up` for `final`.
+
 `infra/final/apply.sh` now resolves the Application Gateway public endpoint and writes:
 - `APP_GATEWAY_URL` (primary URL)
 - `API_URL` (same value for compatibility with azd endpoint lookups)
@@ -87,43 +75,11 @@ open "$APP_GATEWAY_URL"
 
 `infra/final` defaults to azd environment name `final` and resource group `rg-securetalk-poc-swc-mx01-final`.
 
-2. Deploy baseline (`start`) for live walkthrough:
-
-```bash
-cd infra/start
-azd up
-```
-
-3. Apply managed identity step (`step1`) for live walkthrough:
-
-```bash
-cd infra/step1
-azd up
-```
-
-4. Reveal the predeployed hardened endpoint from item 1 (`APP_GATEWAY_URL` in `infra/final`).
-
 ---
 
-## Stage details
+## Final deployment
 
-### `start`
-
-- App Service is public
-- Storage is public and app uses **connection string**
-- API key is stored directly in App Service app settings
-- No Key Vault/private endpoints/Application Gateway
-
-### `step1`
-
-- Enables system-assigned identity on App Service
-- Assigns `Storage Table Data Contributor` on Storage account
-- Switches storage mode to MI (`STORAGE_TABLES_URI`) and clears `STORAGE_CONNECTION_STRING`
-- API key remains in plain app setting
-
-### `final`
-
-`final` runs baseline provisioning/deploy first, then applies full hardening:
+The final deployment provisions the base resources, deploys the client, then applies full hardening:
 
 - Storage MI/RBAC configuration (`Storage Table Data Contributor`)
 - Key Vault creation and secret seeding (`AssetServiceApiKey`)
@@ -146,8 +102,7 @@ azd up
 
 ## Notes
 
-- This demo is intentionally staged; not all controls are enabled at `start`.
-- If subscription policy forces `allowSharedKeyAccess=false`, `start` falls back to in-memory comment/ticket persistence.
+- If subscription policy forces `allowSharedKeyAccess=false`, the client falls back to in-memory comment/ticket persistence.
 - If re-running `final` after Key Vault is already private, pass the secret value as a one-time shell variable when you run `azd up` (do not persist it with `azd env set`):
 
 ```bash

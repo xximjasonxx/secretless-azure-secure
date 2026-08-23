@@ -5,14 +5,6 @@
 
 # Azure Developer CLI local state
 .azure/
-!infra/start/.azure/
-!infra/start/.azure/.gitignore
-!infra/start/.azure/config.json
-!infra/step1/.azure/
-!infra/step1/.azure/.gitignore
-!infra/step1/.azure/config.json
-!infra/step1/.azure/demo/
-!infra/step1/.azure/demo/.env
 !infra/final/.azure/
 !infra/final/.azure/.gitignore
 !infra/final/.azure/config.json

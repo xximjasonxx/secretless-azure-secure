@@ -3,7 +3,7 @@ metadata:
   template: secretless-conference-demo
 
 infra:
-  path: ../start
+  path: ..
 
 workflows:
   up:
@@ -23,6 +23,6 @@ hooks:
 
 services:
   api:
-    project: ../../src/Secretless.AzureSecureDemo.csproj
+    project: ../../src/client/Secretless.AzureSecureDemo.csproj
     host: appservice
     language: dotnet

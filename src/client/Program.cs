@@ -15,8 +15,8 @@ var commentsTableName = Environment.GetEnvironmentVariable("ASSET_COMMENTS_TABLE
 var ticketsTableName = Environment.GetEnvironmentVariable("ASSET_TICKETS_TABLE") ?? "assettickets";
 
 var tableServiceClient = BuildTableServiceClient();
-var commentsTable = tableServiceClient.GetTableClient(commentsTableName);
-var ticketsTable = tableServiceClient.GetTableClient(ticketsTableName);
+var commentsTable = tableServiceClient?.GetTableClient(commentsTableName);
+var ticketsTable = tableServiceClient?.GetTableClient(ticketsTableName);
 var inMemoryComments = new ConcurrentDictionary<string, List<ActivityRow>>();
 var inMemoryTickets = new ConcurrentDictionary<string, List<ActivityRow>>();
 var mission = new MissionRuntimeState();
@@ -29,32 +29,41 @@ void AddMissionEvent(string severity, string category, string message)
     }
 }
 
-try
+if (commentsTable is null || ticketsTable is null)
 {
-    await commentsTable.CreateIfNotExistsAsync();
-    await ticketsTable.CreateIfNotExistsAsync();
-    mission.TableInitialization = "ready";
-    AddMissionEvent("success", "storage", "Table initialization succeeded.");
+    mission.TableInitialization = "in-memory";
+    AddMissionEvent("warning", "storage", "No table storage configured; using in-memory activity storage.");
 }
-catch (Exception ex)
+else
 {
-    logger.LogWarning(ex, "Table initialization failed. API calls may fail until table access is available.");
-    mission.TableInitialization = "failed";
-    mission.LastError = "Table initialization failed.";
-    AddMissionEvent("warning", "storage", "Table initialization failed, in-memory fallback may be used.");
+    try
+    {
+        await commentsTable.CreateIfNotExistsAsync();
+        await ticketsTable.CreateIfNotExistsAsync();
+        mission.TableInitialization = "ready";
+        AddMissionEvent("success", "storage", "Table initialization succeeded.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Table initialization failed. API calls may fail until table access is available.");
+        mission.TableInitialization = "failed";
+        mission.LastError = "Table initialization failed.";
+        AddMissionEvent("warning", "storage", "Table initialization failed, in-memory fallback may be used.");
+    }
 }
 
 app.MapGet("/health", () => Results.Text("ok", "text/plain"));
 
 app.MapGet("/", () => Results.Content(GetHtmlPage(), "text/html"));
 app.MapGet("/mission-control", () => Results.Content(GetMissionControlPage(), "text/html"));
+app.MapGet("/tickets", () => Results.Content(GetTicketsPage(), "text/html"));
 
 app.MapGet("/api/assets/search", async (string? q, IHttpClientFactory httpClientFactory, CancellationToken cancellationToken) =>
 {
     var assets = await SearchAssetsAsync(q, httpClientFactory, cancellationToken);
     return Results.Json(new
     {
-        stage = Environment.GetEnvironmentVariable("APP_SECURITY_STAGE") ?? "start",
+        stage = Environment.GetEnvironmentVariable("APP_SECURITY_STAGE") ?? "final",
         query = q ?? string.Empty,
         count = assets.Count,
         assets
@@ -63,7 +72,7 @@ app.MapGet("/api/assets/search", async (string? q, IHttpClientFactory httpClient
 
 app.MapGet("/api/mission-control", async (CancellationToken cancellationToken) =>
 {
-    var stage = Environment.GetEnvironmentVariable("APP_SECURITY_STAGE") ?? "start";
+    var stage = Environment.GetEnvironmentVariable("APP_SECURITY_STAGE") ?? "final";
     var storageConnectionString = Environment.GetEnvironmentVariable("STORAGE_CONNECTION_STRING");
     var storageTablesUri = Environment.GetEnvironmentVariable("STORAGE_TABLES_URI");
     var apiKeyValue = Environment.GetEnvironmentVariable("ASSET_SERVICE_API_KEY");
@@ -74,8 +83,7 @@ app.MapGet("/api/mission-control", async (CancellationToken cancellationToken) =
     var networkProfile = stage switch
     {
         "final" => "private-networking",
-        "step1" => "public-endpoints-with-managed-identity",
-        _ => "public-endpoints"
+        _ => "private-networking"
     };
 
     return Results.Json(new
@@ -103,8 +111,8 @@ app.MapGet("/api/assets/{assetId}/activity", async (string assetId, Cancellation
 {
     try
     {
-        var comments = await ReadEntitiesAsync(commentsTable, assetId, cancellationToken);
-        var tickets = await ReadEntitiesAsync(ticketsTable, assetId, cancellationToken);
+        var comments = await ReadEntitiesAsync(commentsTable!, assetId, cancellationToken);
+        var tickets = await ReadEntitiesAsync(ticketsTable!, assetId, cancellationToken);
         Interlocked.Increment(ref mission.Reads);
         mission.LastStorageMode = "table-storage";
 
@@ -133,6 +141,43 @@ app.MapGet("/api/assets/{assetId}/activity", async (string assetId, Cancellation
     }
 });
 
+app.MapGet("/api/tickets", async (CancellationToken cancellationToken) =>
+{
+    try
+    {
+        var tickets = await ReadAllEntitiesAsync(ticketsTable!, cancellationToken);
+        Interlocked.Increment(ref mission.Reads);
+        mission.LastStorageMode = "table-storage";
+
+        return Results.Json(new
+        {
+            storageMode = "table-storage",
+            count = tickets.Count,
+            tickets
+        });
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Falling back to in-memory ticket listing.");
+        Interlocked.Increment(ref mission.FallbackReads);
+        mission.LastStorageMode = "in-memory-fallback";
+        mission.LastError = "Storage read fallback active.";
+        AddMissionEvent("warning", "storage-read", "Fallback read used for all tickets.");
+
+        var tickets = inMemoryTickets
+            .SelectMany(pair => pair.Value.Select(row => row with { AssetId = pair.Key }))
+            .OrderByDescending(row => row.CreatedUtc, StringComparer.Ordinal)
+            .ToList();
+
+        return Results.Json(new
+        {
+            storageMode = "in-memory-fallback",
+            count = tickets.Count,
+            tickets
+        });
+    }
+});
+
 app.MapPost("/api/assets/{assetId}/comments", async (string assetId, CommentRequest request, CancellationToken cancellationToken) =>
 {
     if (string.IsNullOrWhiteSpace(request.Author) || string.IsNullOrWhiteSpace(request.Message))
@@ -150,7 +195,7 @@ app.MapPost("/api/assets/{assetId}/comments", async (string assetId, CommentRequ
             ["createdUtc"] = createdUtc
         };
 
-        await commentsTable.AddEntityAsync(entity, cancellationToken);
+        await commentsTable!.AddEntityAsync(entity, cancellationToken);
         Interlocked.Increment(ref mission.Writes);
         mission.LastStorageMode = "table-storage";
         return Results.Ok(new { saved = true, storageMode = "table-storage" });
@@ -169,8 +214,7 @@ app.MapPost("/api/assets/{assetId}/comments", async (string assetId, CommentRequ
             null);
         inMemoryComments.AddOrUpdate(assetId, [row], (_, current) =>
         {
-            current.Add(row);
-            return current;
+            return [.. current, row];
         });
         Interlocked.Increment(ref mission.FallbackWrites);
         mission.LastStorageMode = "in-memory-fallback";
@@ -200,7 +244,7 @@ app.MapPost("/api/assets/{assetId}/tickets", async (string assetId, TicketReques
             ["createdUtc"] = createdUtc
         };
 
-        await ticketsTable.AddEntityAsync(entity, cancellationToken);
+        await ticketsTable!.AddEntityAsync(entity, cancellationToken);
         Interlocked.Increment(ref mission.Writes);
         mission.LastStorageMode = "table-storage";
         return Results.Ok(new { created = true, status = "open", storageMode = "table-storage" });
@@ -219,8 +263,7 @@ app.MapPost("/api/assets/{assetId}/tickets", async (string assetId, TicketReques
             "open");
         inMemoryTickets.AddOrUpdate(assetId, [row], (_, current) =>
         {
-            current.Add(row);
-            return current;
+            return [.. current, row];
         });
         Interlocked.Increment(ref mission.FallbackWrites);
         mission.LastStorageMode = "in-memory-fallback";
@@ -232,7 +275,7 @@ app.MapPost("/api/assets/{assetId}/tickets", async (string assetId, TicketReques
 
 app.Run();
 
-TableServiceClient BuildTableServiceClient()
+TableServiceClient? BuildTableServiceClient()
 {
     var connectionString = Environment.GetEnvironmentVariable("STORAGE_CONNECTION_STRING");
     if (!string.IsNullOrWhiteSpace(connectionString))
@@ -243,7 +286,7 @@ TableServiceClient BuildTableServiceClient()
     var tablesUri = Environment.GetEnvironmentVariable("STORAGE_TABLES_URI");
     if (string.IsNullOrWhiteSpace(tablesUri))
     {
-        throw new InvalidOperationException("Set STORAGE_CONNECTION_STRING (start) or STORAGE_TABLES_URI (step1/final).");
+        return null;
     }
 
     return new TableServiceClient(new Uri(tablesUri), new DefaultAzureCredential());
@@ -265,7 +308,7 @@ static async Task<IReadOnlyList<AssetDto>> SearchAssetsAsync(string? query, IHtt
 
     if (string.IsNullOrWhiteSpace(apiUrl) || string.IsNullOrWhiteSpace(apiKey))
     {
-        return filtered.Select(a => a with { Source = "local-fallback" }).ToList();
+        return filtered.Select(a => a with { Source = "local-fallback (asset service not configured)" }).ToList();
     }
 
     try
@@ -285,7 +328,10 @@ static async Task<IReadOnlyList<AssetDto>> SearchAssetsAsync(string? query, IHtt
         }
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var external = await JsonSerializer.DeserializeAsync<List<AssetDto>>(stream, cancellationToken: cancellationToken) ?? [];
+        var external = await JsonSerializer.DeserializeAsync<List<AssetDto>>(
+            stream,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true },
+            cancellationToken) ?? [];
         return external.Count == 0
             ? filtered.Select(a => a with { Source = "local-fallback (asset service empty)" }).ToList()
             : external;
@@ -309,10 +355,33 @@ static async Task<List<ActivityRow>> ReadEntitiesAsync(TableClient table, string
             entity.GetString("title"),
             entity.GetString("details"),
             entity.GetString("priority"),
-            entity.GetString("status")));
+            entity.GetString("status"),
+            entity.PartitionKey));
     }
 
     return rows;
+}
+
+static async Task<List<ActivityRow>> ReadAllEntitiesAsync(TableClient table, CancellationToken cancellationToken)
+{
+    var rows = new List<ActivityRow>();
+    await foreach (var entity in table.QueryAsync<TableEntity>(cancellationToken: cancellationToken))
+    {
+        rows.Add(new ActivityRow(
+            entity.RowKey,
+            entity.GetString("createdUtc") ?? entity.Timestamp?.ToString("O") ?? string.Empty,
+            entity.GetString("author") ?? entity.GetString("createdBy"),
+            entity.GetString("message"),
+            entity.GetString("title"),
+            entity.GetString("details"),
+            entity.GetString("priority"),
+            entity.GetString("status"),
+            entity.PartitionKey));
+    }
+
+    return rows
+        .OrderByDescending(row => row.CreatedUtc, StringComparer.Ordinal)
+        .ToList();
 }
 
 static List<AssetDto> GetLocalAssets() =>
@@ -350,6 +419,9 @@ static string GetHtmlPage() => """
     <ul class="nav nav-tabs mb-3">
       <li class="nav-item">
         <a class="nav-link active" aria-current="page" href="/">Main Application</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="/tickets">Tickets</a>
       </li>
       <li class="nav-item">
         <a class="nav-link" href="/mission-control">Mission Control</a>
@@ -540,6 +612,9 @@ static string GetMissionControlPage() => """
         <a class="nav-link" href="/">Main Application</a>
       </li>
       <li class="nav-item">
+        <a class="nav-link" href="/tickets">Tickets</a>
+      </li>
+      <li class="nav-item">
         <a class="nav-link active" aria-current="page" href="/mission-control">Mission Control</a>
       </li>
     </ul>
@@ -688,10 +763,130 @@ static string GetMissionControlPage() => """
 </html>
 """;
 
+static string GetTicketsPage() => """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Tickets</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    .hero {
+      background: linear-gradient(135deg, #ffc107, #fd7e14);
+      color: #212529;
+      border-radius: 1rem;
+      padding: 1.5rem;
+    }
+  </style>
+</head>
+<body class="bg-body-tertiary">
+  <main class="container py-4">
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item">
+        <a class="nav-link" href="/">Main Application</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link active" aria-current="page" href="/tickets">Tickets</a>
+      </li>
+      <li class="nav-item">
+        <a class="nav-link" href="/mission-control">Mission Control</a>
+      </li>
+    </ul>
+
+    <section class="hero mb-4 shadow-sm">
+      <div class="d-flex justify-content-between align-items-start flex-wrap gap-3">
+        <div>
+          <h1 class="h3 mb-1">Tickets</h1>
+          <div class="opacity-75">View created tickets across all assets from table storage or the in-memory fallback.</div>
+        </div>
+        <button id="refreshTicketsBtn" class="btn btn-dark btn-sm">Refresh</button>
+      </div>
+    </section>
+
+    <section class="card shadow-sm">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+          <div>
+            <div class="small text-secondary">Storage Mode</div>
+            <span id="ticketsStorageMode" class="badge text-bg-secondary">loading</span>
+          </div>
+          <div>
+            <div class="small text-secondary">Ticket Count</div>
+            <div id="ticketCount" class="fw-semibold">0</div>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="table table-striped table-hover align-middle mb-0">
+            <thead>
+              <tr>
+                <th scope="col">Title</th>
+                <th scope="col">Status</th>
+                <th scope="col">Asset</th>
+                <th scope="col">Priority</th>
+                <th scope="col">Created</th>
+              </tr>
+            </thead>
+            <tbody id="ticketsTableBody">
+              <tr><td colspan="5" class="text-center text-secondary py-4">Loading tickets…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    function storageBadgeTone(mode) {
+      return mode === 'table-storage' ? 'text-bg-success' : 'text-bg-warning';
+    }
+
+    async function loadTickets() {
+      const res = await fetch('/api/tickets');
+      const data = await res.json();
+      const storageMode = document.getElementById('ticketsStorageMode');
+      storageMode.className = `badge ${storageBadgeTone(data.storageMode)}`;
+      storageMode.textContent = data.storageMode || 'n/a';
+      document.getElementById('ticketCount').textContent = data.count || 0;
+
+      const body = document.getElementById('ticketsTableBody');
+      body.innerHTML = '';
+      const tickets = data.tickets || [];
+      if (tickets.length === 0) {
+        body.innerHTML = '<tr><td colspan="5" class="text-center text-secondary py-4">No tickets found.</td></tr>';
+        return;
+      }
+
+      tickets.forEach(ticket => {
+        const row = document.createElement('tr');
+        const values = [ticket.title || '', ticket.status || 'open', ticket.assetId || 'n/a', ticket.priority || 'normal', ticket.createdUtc ? new Date(ticket.createdUtc).toLocaleString() : ''];
+        values.forEach((value, index) => {
+          const cell = document.createElement('td');
+          cell.textContent = value;
+          if (index === 1) {
+            const badge = document.createElement('span');
+            badge.className = 'badge text-bg-secondary';
+            badge.textContent = value;
+            cell.textContent = '';
+            cell.appendChild(badge);
+          }
+          row.appendChild(cell);
+        });
+        body.appendChild(row);
+      });
+    }
+
+    document.getElementById('refreshTicketsBtn').onclick = loadTickets;
+    loadTickets();
+  </script>
+</body>
+</html>
+""";
+
 public sealed record CommentRequest(string Author, string Message);
 public sealed record TicketRequest(string CreatedBy, string Title, string? Details, string? Priority);
 public sealed record AssetDto(string AssetId, string Name, string Region, string Category, string Source);
-public sealed record ActivityRow(string Id, string CreatedUtc, string? Author, string? Message, string? Title, string? Details, string? Priority, string? Status);
+public sealed record ActivityRow(string Id, string CreatedUtc, string? Author, string? Message, string? Title, string? Details, string? Priority, string? Status, string? AssetId = null);
 public sealed record MissionEvent(string Timestamp, string Severity, string Category, string Message);
 
 public sealed class MissionRuntimeState

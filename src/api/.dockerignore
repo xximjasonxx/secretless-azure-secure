@@ -1,0 +1,13 @@
+bin/
+obj/
+.dockerignore
+Dockerfile
+.git/
+.github/
+.vs/
+.vscode/
+**/node_modules/
+*.user
+*.suo
+**/.DS_Store
+**/Thumbs.db
