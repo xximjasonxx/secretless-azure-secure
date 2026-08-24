@@ -478,7 +478,9 @@ static string GetHtmlPage() => """
               <option value="high">high</option>
             </select>
             <button id="ticketBtn" class="btn btn-warning">Create Ticket</button>
-            <ul id="tickets" class="list-group mt-3"></ul>
+            <div id="ticketSuccess" class="alert alert-success mt-3 d-none" role="alert">
+              Ticket created successfully. Open the <a class="alert-link" href="/tickets">Tickets tab</a> to see it.
+            </div>
           </div>
         </section>
       </div>
@@ -510,6 +512,7 @@ static string GetHtmlPage() => """
       selectedAsset = assetId;
       document.getElementById('selectedAssetComments').textContent = assetId;
       document.getElementById('selectedAssetTickets').textContent = assetId;
+      document.getElementById('ticketSuccess').classList.add('d-none');
       await refreshActivity();
     }
 
@@ -518,21 +521,13 @@ static string GetHtmlPage() => """
       const res = await fetch(`/api/assets/${encodeURIComponent(selectedAsset)}/activity`);
       const data = await res.json();
       const commentsEl = document.getElementById('comments');
-      const ticketsEl = document.getElementById('tickets');
       commentsEl.innerHTML = '';
-      ticketsEl.innerHTML = '';
 
       (data.comments || []).forEach(c => {
         const li = document.createElement('li');
         li.className = 'list-group-item';
         li.textContent = `${c.createdUtc || ''} - ${c.author || 'unknown'}: ${c.message || ''}`;
         commentsEl.appendChild(li);
-      });
-      (data.tickets || []).forEach(t => {
-        const li = document.createElement('li');
-        li.className = 'list-group-item';
-        li.textContent = `${t.createdUtc || ''} - [${t.priority || 'normal'}] ${t.title || ''} (${t.status || 'open'})`;
-        ticketsEl.appendChild(li);
       });
     }
 
@@ -552,7 +547,8 @@ static string GetHtmlPage() => """
 
     async function addTicket() {
       if (!selectedAsset) return alert('Select an asset first');
-      await fetch(`/api/assets/${encodeURIComponent(selectedAsset)}/tickets`, {
+      document.getElementById('ticketSuccess').classList.add('d-none');
+      const res = await fetch(`/api/assets/${encodeURIComponent(selectedAsset)}/tickets`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -562,9 +558,20 @@ static string GetHtmlPage() => """
           priority: document.getElementById('ticketPriority').value
         })
       });
+      if (!res.ok) {
+        const body = await res.text();
+        let message = 'Ticket creation failed';
+        try {
+          message = JSON.parse(body).error || message;
+        } catch {
+          message = body || message;
+        }
+        alert(message);
+        return;
+      }
       document.getElementById('ticketTitle').value = '';
       document.getElementById('ticketDetails').value = '';
-      await refreshActivity();
+      document.getElementById('ticketSuccess').classList.remove('d-none');
     }
 
     document.getElementById('searchBtn').onclick = searchAssets;

@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.44.1.10279",
-      "templateHash": "16012393227348328574"
+      "version": "0.46.1.21595",
+      "templateHash": "6764330246346021571"
     }
   },
   "parameters": {
@@ -42,25 +42,6 @@
         "description": "Asset service API key value copied into Key Vault during final stage. Leave empty to keep the existing secret value."
       }
     },
-    "keyVaultAdminObjectId": {
-      "type": "string",
-      "metadata": {
-        "description": "Object ID granted Key Vault Administrator on the final Key Vault."
-      }
-    },
-    "keyVaultAdminPrincipalType": {
-      "type": "string",
-      "defaultValue": "User",
-      "metadata": {
-        "description": "Principal type for the Key Vault Administrator assignment."
-      }
-    },
-    "appPrincipalObjectId": {
-      "type": "string",
-      "metadata": {
-        "description": "App Service managed identity object ID granted Key Vault secret read access."
-      }
-    },
     "assetServiceApiKeySecretName": {
       "type": "string",
       "defaultValue": "AssetServiceApiKey",
@@ -82,9 +63,7 @@
     "appGatewaySubnetName": "snet-appgw",
     "privateEndpointSubnetName": "snet-pe",
     "appIntegrationSubnetName": "snet-app",
-    "appGatewayPublicIpDnsLabel": "[toLower(format('agw-{0}', take(uniqueString(subscription().id, resourceGroup().id, parameters('appName')), 26)))]",
-    "keyVaultAdministratorRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')]",
-    "keyVaultSecretsUserRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')]"
+    "appGatewayPublicIpDnsLabel": "[toLower(format('agw-{0}', take(uniqueString(subscription().id, resourceGroup().id, parameters('appName')), 26)))]"
   },
   "resources": [
     {
@@ -251,34 +230,6 @@
       "name": "[format('{0}/{1}', parameters('keyVaultName'), parameters('assetServiceApiKeySecretName'))]",
       "properties": {
         "value": "[parameters('assetServiceApiKeySecretValue')]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
-      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('keyVaultAdminObjectId'), variables('keyVaultAdministratorRoleDefinitionId'))]",
-      "properties": {
-        "roleDefinitionId": "[variables('keyVaultAdministratorRoleDefinitionId')]",
-        "principalId": "[parameters('keyVaultAdminObjectId')]",
-        "principalType": "[parameters('keyVaultAdminPrincipalType')]"
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Authorization/roleAssignments",
-      "apiVersion": "2022-04-01",
-      "scope": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
-      "name": "[guid(resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName')), parameters('appPrincipalObjectId'), variables('keyVaultSecretsUserRoleDefinitionId'))]",
-      "properties": {
-        "roleDefinitionId": "[variables('keyVaultSecretsUserRoleDefinitionId')]",
-        "principalId": "[parameters('appPrincipalObjectId')]",
-        "principalType": "ServicePrincipal"
       },
       "dependsOn": [
         "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"

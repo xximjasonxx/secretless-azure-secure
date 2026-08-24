@@ -83,6 +83,7 @@ ensure_role_assignment() {
   local role_name="$1"
   local scope="$2"
   local principal_id="$3"
+  local principal_type="${4:-ServicePrincipal}"
   local existing
   existing="$(az role assignment list \
     --assignee-object-id "$principal_id" \
@@ -98,11 +99,93 @@ ensure_role_assignment() {
   echo "Assigning role: $role_name"
   az role assignment create \
     --assignee-object-id "$principal_id" \
-    --assignee-principal-type ServicePrincipal \
+    --assignee-principal-type "$principal_type" \
     --role "$role_name" \
     --scope "$scope" \
     --only-show-errors \
     -o none
+}
+
+ensure_custom_role_definition() {
+  local role_name="Mission Control App Settings Reader"
+  local role_definition_id="bae9b1f4-d2b2-44a0-b0d0-7ea87980d935"
+  local scope="$1"
+  local existing_role_name
+  local existing_role_definition
+  local scope_exists
+  local updated_role_definition
+
+  existing_role_name="$(az role definition list \
+    --name "$role_name" \
+    --query "[0].roleName" \
+    -o tsv 2>/dev/null || true)"
+
+  if [[ -z "$existing_role_name" ]]; then
+    existing_role_name="$(az role definition list \
+      --custom-role-only true \
+      --query "[?name=='$role_definition_id'] | [0].roleName" \
+      -o tsv 2>/dev/null || true)"
+  fi
+
+  if [[ -n "$existing_role_name" ]]; then
+    existing_role_definition="$(az role definition list \
+      --name "$existing_role_name" \
+      --query "[0]" \
+      -o json)"
+    scope_exists="$(printf '%s' "$existing_role_definition" | jq -r --arg scope "$scope" 'any(.assignableScopes[]?; . == $scope)')"
+
+    if [[ "$scope_exists" != "true" ]]; then
+      echo "Updating custom role assignable scopes: $existing_role_name" >&2
+      updated_role_definition="$(printf '%s' "$existing_role_definition" | jq -c --arg scope "$scope" '
+        {
+          Name: .name,
+          Id: .id,
+          roleName: .roleName,
+          Description: .description,
+          Actions: .permissions[0].actions,
+          NotActions: .permissions[0].notActions,
+          DataActions: .permissions[0].dataActions,
+          NotDataActions: .permissions[0].notDataActions,
+          AssignableScopes: ((.assignableScopes // []) + [$scope] | unique)
+        }')"
+
+      az role definition update \
+        --role-definition "$updated_role_definition" \
+        --only-show-errors \
+        -o none
+    else
+      echo "Custom role already includes scope: $existing_role_name" >&2
+    fi
+
+    printf '%s\n' "$existing_role_name"
+    return 0
+  fi
+
+  echo "Creating custom role: $role_name" >&2
+  az role definition create \
+    --role-definition "$(jq -n \
+      --arg id "$role_definition_id" \
+      --arg roleName "$role_name" \
+      --arg description "Allows Mission Control to inspect raw App Service app settings without write access." \
+      --arg scope "$scope" \
+      '{
+        Name: $id,
+        Id: $id,
+        IsCustom: true,
+        Description: $description,
+        Actions: [
+          "Microsoft.Web/sites/read",
+          "Microsoft.Web/sites/config/read",
+          "Microsoft.Web/sites/config/list/action"
+        ],
+        NotActions: [],
+        AssignableScopes: [$scope],
+        roleName: $roleName
+      }')" \
+    --only-show-errors \
+    -o none
+
+  printf '%s\n' "$role_name"
 }
 
 RG="$(resolve_value_or_default "${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP || true)}" "")"
@@ -218,10 +301,7 @@ DEPLOY_PARAMS=(
   "location=$LOCATION"
   "appName=$APP_NAME"
   "storageAccountName=$STORAGE_NAME"
-  "appPrincipalObjectId=$APP_PRINCIPAL_ID"
   "assetServiceApiKeySecretValue=$ASSET_SERVICE_API_KEY_VALUE"
-  "keyVaultAdminObjectId=$KEYVAULT_ADMIN_OBJECT_ID"
-  "keyVaultAdminPrincipalType=$KEYVAULT_ADMIN_PRINCIPAL_TYPE"
   "assetServiceApiKeySecretName=$SECRET_NAME"
 )
 
@@ -256,6 +336,15 @@ if [[ -z "$KEYVAULT_NAME" || -z "$KEYVAULT_URI" || -z "$VNET_NAME" || -z "$APP_G
   echo "ERROR: Missing expected deployment outputs from final infrastructure deployment."
   exit 1
 fi
+
+KEYVAULT_SCOPE="$(az keyvault show --resource-group "$RG" --name "$KEYVAULT_NAME" --query id -o tsv)"
+APP_SCOPE="$(az webapp show --resource-group "$RG" --name "$APP_NAME" --query id -o tsv)"
+RG_SCOPE="$(az group show --name "$RG" --query id -o tsv)"
+APP_SETTINGS_READER_ROLE_NAME="$(ensure_custom_role_definition "$RG_SCOPE")"
+ensure_role_assignment "Key Vault Administrator" "$KEYVAULT_SCOPE" "$KEYVAULT_ADMIN_OBJECT_ID" "$KEYVAULT_ADMIN_PRINCIPAL_TYPE"
+ensure_role_assignment "Key Vault Secrets User" "$KEYVAULT_SCOPE" "$APP_PRINCIPAL_ID" ServicePrincipal
+ensure_role_assignment "$APP_SETTINGS_READER_ROLE_NAME" "$APP_SCOPE" "$APP_PRINCIPAL_ID" ServicePrincipal
+
 SECRET_URI="${KEYVAULT_URI}secrets/${SECRET_NAME}/"
 
 echo "Locking resources to private-only access..."

@@ -16,15 +16,6 @@ param storageAccountName string
 @secure()
 param assetServiceApiKeySecretValue string = ''
 
-@description('Object ID granted Key Vault Administrator on the final Key Vault.')
-param keyVaultAdminObjectId string
-
-@description('Principal type for the Key Vault Administrator assignment.')
-param keyVaultAdminPrincipalType string = 'User'
-
-@description('App Service managed identity object ID granted Key Vault secret read access.')
-param appPrincipalObjectId string
-
 @description('Key Vault secret name used by the app.')
 param assetServiceApiKeySecretName string = 'AssetServiceApiKey'
 
@@ -188,60 +179,6 @@ resource assetServiceApiKeySecret 'Microsoft.KeyVault/vaults/secrets@2023-07-01'
   name: assetServiceApiKeySecretName
   properties: {
     value: assetServiceApiKeySecretValue
-  }
-}
-
-var keyVaultAdministratorRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '00482a5a-887f-4fb3-b363-3b7fe8e74483')
-var keyVaultSecretsUserRoleDefinitionId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '4633458b-17de-408a-b874-0445c86b69e6')
-resource appSettingsReaderRoleDefinition 'Microsoft.Authorization/roleDefinitions@2022-04-01' = {
-  name: 'bae9b1f4-d2b2-44a0-b0d0-7ea87980d935'
-  properties: {
-    roleName: 'Mission Control App Settings Reader'
-    description: 'Allows Mission Control to inspect raw App Service app settings without write access.'
-    type: 'CustomRole'
-    assignableScopes: [
-      resourceGroup().id
-    ]
-    permissions: [
-      {
-        actions: [
-          'Microsoft.Web/sites/read'
-          'Microsoft.Web/sites/config/read'
-          'Microsoft.Web/sites/config/list/action'
-        ]
-        notActions: []
-      }
-    ]
-  }
-}
-
-resource keyVaultAdminRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: keyVault
-  name: guid(keyVault.id, keyVaultAdminObjectId, keyVaultAdministratorRoleDefinitionId)
-  properties: {
-    roleDefinitionId: keyVaultAdministratorRoleDefinitionId
-    principalId: keyVaultAdminObjectId
-    principalType: keyVaultAdminPrincipalType
-  }
-}
-
-resource appSecretsUserRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: keyVault
-  name: guid(keyVault.id, appPrincipalObjectId, keyVaultSecretsUserRoleDefinitionId)
-  properties: {
-    roleDefinitionId: keyVaultSecretsUserRoleDefinitionId
-    principalId: appPrincipalObjectId
-    principalType: 'ServicePrincipal'
-  }
-}
-
-resource appSettingsReaderRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: app
-  name: guid(app.id, appPrincipalObjectId, appSettingsReaderRoleDefinition.id)
-  properties: {
-    roleDefinitionId: appSettingsReaderRoleDefinition.id
-    principalId: appPrincipalObjectId
-    principalType: 'ServicePrincipal'
   }
 }
 

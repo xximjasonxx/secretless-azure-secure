@@ -9,7 +9,7 @@ workflows:
   up:
     steps:
       - azd: restore
-      - azd: provision --location swedencentral
+      - azd: provision
       - azd: package --all
       - azd: deploy --all
 
