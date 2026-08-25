@@ -144,3 +144,4 @@ output AZURE_KEY_VAULT_NAME string = keyVault.outputs.keyVaultName
 output AZURE_STORAGE_ACCOUNT_NAME string = storage.outputs.storageAccountName
 output KEYVAULT_URI string = keyVault.outputs.keyVaultUri
 output STORAGE_BLOB_URI string = storage.outputs.storageBlobUri
+output VNET_NAME string = vnetName

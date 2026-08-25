@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.43.8.12551",
-      "templateHash": "1599962836119391201"
+      "version": "0.46.1.21595",
+      "templateHash": "10556810692578003355"
     }
   },
   "parameters": {
@@ -92,8 +92,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.43.8.12551",
-              "templateHash": "9824184561062666150"
+              "version": "0.46.1.21595",
+              "templateHash": "16713390562402548474"
             }
           },
           "parameters": {
@@ -245,8 +245,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.43.8.12551",
-              "templateHash": "4489496960195621400"
+              "version": "0.46.1.21595",
+              "templateHash": "937952497783565135"
             }
           },
           "parameters": {
@@ -367,8 +367,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.43.8.12551",
-              "templateHash": "11788661860251267993"
+              "version": "0.46.1.21595",
+              "templateHash": "13886711780645533560"
             }
           },
           "parameters": {
@@ -510,8 +510,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.43.8.12551",
-              "templateHash": "782846569360212951"
+              "version": "0.46.1.21595",
+              "templateHash": "3947913876392358436"
             }
           },
           "parameters": {
@@ -680,8 +680,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.43.8.12551",
-              "templateHash": "3529336671804857521"
+              "version": "0.46.1.21595",
+              "templateHash": "15546585306918459085"
             }
           },
           "parameters": {
@@ -779,8 +779,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.43.8.12551",
-              "templateHash": "11394562150484814126"
+              "version": "0.46.1.21595",
+              "templateHash": "3389061240463844542"
             }
           },
           "parameters": {
@@ -1028,6 +1028,10 @@
     "STORAGE_BLOB_URI": {
       "type": "string",
       "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('storage-{0}', variables('token'))), '2025-04-01').outputs.storageBlobUri.value]"
+    },
+    "VNET_NAME": {
+      "type": "string",
+      "value": "[variables('vnetName')]"
     }
   }
 }

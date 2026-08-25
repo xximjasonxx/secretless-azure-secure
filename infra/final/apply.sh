@@ -122,8 +122,8 @@ ensure_custom_role_definition() {
 
   if [[ -z "$existing_role_name" ]]; then
     existing_role_name="$(az role definition list \
-      --custom-role-only true \
-      --query "[?name=='$role_definition_id'] | [0].roleName" \
+      --name "$role_definition_id" \
+      --query "[0].roleName" \
       -o tsv 2>/dev/null || true)"
   fi
 
@@ -157,20 +157,18 @@ ensure_custom_role_definition() {
       echo "Custom role already includes scope: $existing_role_name" >&2
     fi
 
-    printf '%s\n' "$existing_role_name"
+    printf '%s\n' "$(printf '%s' "$existing_role_definition" | jq -r '.id')"
     return 0
   fi
 
   echo "Creating custom role: $role_name" >&2
   az role definition create \
     --role-definition "$(jq -n \
-      --arg id "$role_definition_id" \
       --arg roleName "$role_name" \
       --arg description "Allows Mission Control to inspect raw App Service app settings without write access." \
       --arg scope "$scope" \
       '{
-        Name: $id,
-        Id: $id,
+        Name: $roleName,
         IsCustom: true,
         Description: $description,
         Actions: [
@@ -179,13 +177,33 @@ ensure_custom_role_definition() {
           "Microsoft.Web/sites/config/list/action"
         ],
         NotActions: [],
-        AssignableScopes: [$scope],
-        roleName: $roleName
+        AssignableScopes: [$scope]
       }')" \
     --only-show-errors \
     -o none
 
-  printf '%s\n' "$role_name"
+  for _ in {1..30}; do
+    if az role definition list \
+      --name "$role_name" \
+      --query "[?roleName=='$role_name'] | [0].id" \
+      -o tsv 2>/dev/null | grep -q '/providers/Microsoft.Authorization/roleDefinitions/'; then
+      break
+    fi
+    sleep 2
+  done
+
+  if ! az role definition list \
+    --name "$role_name" \
+    --query "[?roleName=='$role_name'] | [0].id" \
+    -o tsv 2>/dev/null | grep -q '/providers/Microsoft.Authorization/roleDefinitions/'; then
+    echo "ERROR: Custom role '$role_name' was not available after creation." >&2
+    return 1
+  fi
+
+  az role definition list \
+    --name "$role_name" \
+    --query "[?roleName=='$role_name'] | [0].id" \
+    -o tsv
 }
 
 RG="$(resolve_value_or_default "${AZURE_RESOURCE_GROUP:-$(get_env_value AZURE_RESOURCE_GROUP || true)}" "")"
@@ -203,6 +221,12 @@ fi
 STORAGE_NAME="$(resolve_value_or_default "${AZURE_STORAGE_ACCOUNT_NAME:-}" "")"
 if [[ -z "$STORAGE_NAME" ]]; then
   STORAGE_NAME="$(discover_storage_name "$RG")"
+fi
+
+VNET_NAME="$(resolve_value_or_default "${VNET_NAME:-$(get_env_value VNET_NAME || true)}" "")"
+if [[ -z "$VNET_NAME" ]]; then
+  echo "ERROR: VNET_NAME is not set. Run 'azd provision' to create the baseline infrastructure first."
+  exit 1
 fi
 
 LOCATION="$(resolve_value_or_default "${AZURE_LOCATION:-$(get_env_value AZURE_LOCATION || true)}" "")"
@@ -301,6 +325,7 @@ DEPLOY_PARAMS=(
   "location=$LOCATION"
   "appName=$APP_NAME"
   "storageAccountName=$STORAGE_NAME"
+  "vnetName=$VNET_NAME"
   "assetServiceApiKeySecretValue=$ASSET_SERVICE_API_KEY_VALUE"
   "assetServiceApiKeySecretName=$SECRET_NAME"
 )
@@ -396,17 +421,17 @@ if [[ -z "$EXISTING_APP_GATEWAY" ]]; then
     --only-show-errors \
     -o none
 
-  # App Service requires the Host header to match its hostname for SNI routing.
-  # `az network application-gateway create` doesn't expose this flag, so update
-  # the default HTTP settings immediately after creation.
-  az network application-gateway http-settings update \
-    --resource-group "$RG" \
-    --gateway-name "$APP_GATEWAY_NAME" \
-    --name "appGatewayBackendHttpSettings" \
-    --host-name-from-backend-pool true \
-    --only-show-errors \
-    -o none
 fi
+
+# App Service requires its hostname for both the Host header and TLS SNI.
+az network application-gateway http-settings update \
+  --resource-group "$RG" \
+  --gateway-name "$APP_GATEWAY_NAME" \
+  --name "appGatewayBackendHttpSettings" \
+  --host-name-from-backend-pool false \
+  --host-name "${APP_NAME}.azurewebsites.net" \
+  --only-show-errors \
+  -o none
 
 APP_GATEWAY_IP="$(az network public-ip show \
   --resource-group "$RG" \

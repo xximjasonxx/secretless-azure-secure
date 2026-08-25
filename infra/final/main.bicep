@@ -12,6 +12,9 @@ param keyVaultName string = toLower('kv${take(uniqueString(resourceGroup().id, a
 @description('Existing Storage account name.')
 param storageAccountName string
 
+@description('Existing virtual network name created by the baseline infrastructure.')
+param vnetName string
+
 @description('Asset service API key value copied into Key Vault during final stage. Leave empty to keep the existing secret value.')
 @secure()
 param assetServiceApiKeySecretValue string = ''
@@ -25,51 +28,20 @@ var normalizedTags = union(tags, {
   'SecurityControl': 'Ignore'
 })
 
-var vnetName = 'vnet-final-${take(uniqueString(resourceGroup().id, appName), 6)}'
 var appGatewaySubnetName = 'snet-appgw'
 var privateEndpointSubnetName = 'snet-pe'
 var appIntegrationSubnetName = 'snet-app'
 var appGatewayPublicIpDnsLabel = toLower('agw-${take(uniqueString(subscription().id, resourceGroup().id, appName), 26)}')
 
-resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+resource vnet 'Microsoft.Network/virtualNetworks@2024-05-01' existing = {
   name: vnetName
-  location: location
-  tags: normalizedTags
+}
+
+resource appGatewaySubnet 'Microsoft.Network/virtualNetworks/subnets@2024-05-01' = {
+  parent: vnet
+  name: appGatewaySubnetName
   properties: {
-    addressSpace: {
-      addressPrefixes: [
-        '10.80.0.0/16'
-      ]
-    }
-    subnets: [
-      {
-        name: appGatewaySubnetName
-        properties: {
-          addressPrefix: '10.80.1.0/24'
-        }
-      }
-      {
-        name: privateEndpointSubnetName
-        properties: {
-          addressPrefix: '10.80.2.0/24'
-          privateEndpointNetworkPolicies: 'Disabled'
-        }
-      }
-      {
-        name: appIntegrationSubnetName
-        properties: {
-          addressPrefix: '10.80.4.0/24'
-          delegations: [
-            {
-              name: 'appservice-delegation'
-              properties: {
-                serviceName: 'Microsoft.Web/serverFarms'
-              }
-            }
-          ]
-        }
-      }
-    ]
+    addressPrefix: '10.42.3.0/24'
   }
 }
 
@@ -164,9 +136,9 @@ resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' = {
     enabledForDiskEncryption: false
     enabledForTemplateDeployment: false
     softDeleteRetentionInDays: 7
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: 'Disabled'
     networkAcls: {
-      defaultAction: 'Allow'
+      defaultAction: 'Deny'
       bypass: 'AzureServices'
       ipRules: []
       virtualNetworkRules: []
