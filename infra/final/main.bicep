@@ -66,12 +66,6 @@ resource appPrivateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
   tags: normalizedTags
 }
 
-resource keyVaultPrivateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
-  name: 'privatelink.vaultcore.azure.net'
-  location: 'global'
-  tags: normalizedTags
-}
-
 resource tablePrivateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
   name: 'privatelink.table.${environment().suffixes.storage}'
   location: 'global'
@@ -80,19 +74,6 @@ resource tablePrivateDnsZone 'Microsoft.Network/privateDnsZones@2024-06-01' = {
 
 resource appZoneLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
   parent: appPrivateDnsZone
-  name: 'link-${vnet.name}'
-  location: 'global'
-  tags: normalizedTags
-  properties: {
-    registrationEnabled: false
-    virtualNetwork: {
-      id: vnet.id
-    }
-  }
-}
-
-resource keyVaultZoneLink 'Microsoft.Network/privateDnsZones/virtualNetworkLinks@2024-06-01' = {
-  parent: keyVaultPrivateDnsZone
   name: 'link-${vnet.name}'
   location: 'global'
   tags: normalizedTags
@@ -192,32 +173,6 @@ resource appPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
   ]
 }
 
-resource keyVaultPrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
-  name: 'pe-kv-${take(uniqueString(resourceGroup().id, keyVaultName), 6)}'
-  location: location
-  tags: normalizedTags
-  properties: {
-    subnet: {
-      id: resourceId('Microsoft.Network/virtualNetworks/subnets', vnet.name, privateEndpointSubnetName)
-    }
-    privateLinkServiceConnections: [
-      {
-        name: 'kv-connection'
-        properties: {
-          privateLinkServiceId: keyVault.id
-          groupIds: [
-            'vault'
-          ]
-          requestMessage: 'Step2 private endpoint for Key Vault.'
-        }
-      }
-    ]
-  }
-  dependsOn: [
-    vnet
-  ]
-}
-
 resource tablePrivateEndpoint 'Microsoft.Network/privateEndpoints@2024-05-01' = {
   name: 'pe-table-${take(uniqueString(resourceGroup().id, storageAccountName), 6)}'
   location: location
@@ -259,24 +214,6 @@ resource appZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2
   }
   dependsOn: [
     appZoneLink
-  ]
-}
-
-resource keyVaultZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2024-05-01' = {
-  parent: keyVaultPrivateEndpoint
-  name: 'default'
-  properties: {
-    privateDnsZoneConfigs: [
-      {
-        name: 'kv-zone'
-        properties: {
-          privateDnsZoneId: keyVaultPrivateDnsZone.id
-        }
-      }
-    ]
-  }
-  dependsOn: [
-    keyVaultZoneLink
   ]
 }
 

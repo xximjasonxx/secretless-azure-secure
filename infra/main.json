@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.46.1.21595",
-      "templateHash": "10556810692578003355"
+      "version": "0.43.8.12551",
+      "templateHash": "9307588759066807281"
     }
   },
   "parameters": {
@@ -92,8 +92,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.46.1.21595",
-              "templateHash": "16713390562402548474"
+              "version": "0.43.8.12551",
+              "templateHash": "9824184561062666150"
             }
           },
           "parameters": {
@@ -245,8 +245,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.46.1.21595",
-              "templateHash": "937952497783565135"
+              "version": "0.43.8.12551",
+              "templateHash": "4489496960195621400"
             }
           },
           "parameters": {
@@ -359,6 +359,12 @@
           },
           "containerName": {
             "value": "democontainer"
+          },
+          "commentsTableName": {
+            "value": "assetcomments"
+          },
+          "ticketsTableName": {
+            "value": "assettickets"
           }
         },
         "template": {
@@ -367,8 +373,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.46.1.21595",
-              "templateHash": "13886711780645533560"
+              "version": "0.43.8.12551",
+              "templateHash": "6686868511495232157"
             }
           },
           "parameters": {
@@ -397,6 +403,20 @@
               "defaultValue": "democontainer",
               "metadata": {
                 "description": "Blob container name used by the demo app."
+              }
+            },
+            "commentsTableName": {
+              "type": "string",
+              "defaultValue": "assetcomments",
+              "metadata": {
+                "description": "Azure Table name for asset comments."
+              }
+            },
+            "ticketsTableName": {
+              "type": "string",
+              "defaultValue": "assettickets",
+              "metadata": {
+                "description": "Azure Table name for asset tickets."
               }
             }
           },
@@ -446,6 +466,30 @@
               "dependsOn": [
                 "[resourceId('Microsoft.Storage/storageAccounts/blobServices', parameters('name'), 'default')]"
               ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/tableServices",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}', parameters('name'), 'default')]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', parameters('name'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('name'), 'default', parameters('commentsTableName'))]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/tableServices', parameters('name'), 'default')]"
+              ]
+            },
+            {
+              "type": "Microsoft.Storage/storageAccounts/tableServices/tables",
+              "apiVersion": "2023-05-01",
+              "name": "[format('{0}/{1}/{2}', parameters('name'), 'default', parameters('ticketsTableName'))]",
+              "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts/tableServices', parameters('name'), 'default')]"
+              ]
             }
           ],
           "outputs": {
@@ -460,6 +504,14 @@
             "storageBlobUri": {
               "type": "string",
               "value": "[format('https://{0}.blob.{1}/', parameters('name'), environment().suffixes.storage)]"
+            },
+            "commentsTableId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', parameters('name'), 'default', parameters('commentsTableName'))]"
+            },
+            "ticketsTableId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', parameters('name'), 'default', parameters('ticketsTableName'))]"
             }
           }
         }
@@ -510,8 +562,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.46.1.21595",
-              "templateHash": "3947913876392358436"
+              "version": "0.43.8.12551",
+              "templateHash": "782846569360212951"
             }
           },
           "parameters": {
@@ -672,6 +724,12 @@
           },
           "storageAccountName": {
             "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, variables('resourceGroupName')), 'Microsoft.Resources/deployments', format('storage-{0}', variables('token'))), '2025-04-01').outputs.storageAccountName.value]"
+          },
+          "commentsTableName": {
+            "value": "assetcomments"
+          },
+          "ticketsTableName": {
+            "value": "assettickets"
           }
         },
         "template": {
@@ -680,8 +738,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.46.1.21595",
-              "templateHash": "15546585306918459085"
+              "version": "0.43.8.12551",
+              "templateHash": "17810812973058495603"
             }
           },
           "parameters": {
@@ -702,6 +760,20 @@
               "metadata": {
                 "description": "Name of the target Storage account."
               }
+            },
+            "commentsTableName": {
+              "type": "string",
+              "defaultValue": "assetcomments",
+              "metadata": {
+                "description": "Name of the comments table."
+              }
+            },
+            "ticketsTableName": {
+              "type": "string",
+              "defaultValue": "assettickets",
+              "metadata": {
+                "description": "Name of the tickets table."
+              }
             }
           },
           "resources": [
@@ -719,10 +791,21 @@
             {
               "type": "Microsoft.Authorization/roleAssignments",
               "apiVersion": "2022-04-01",
-              "scope": "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]",
-              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), parameters('principalId'), 'storage-blob-data-reader')]",
+              "scope": "[resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', parameters('storageAccountName'), 'default', parameters('commentsTableName'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', parameters('storageAccountName'), 'default', parameters('commentsTableName')), parameters('principalId'), 'storage-comments-table-data-contributor')]",
               "properties": {
-                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1')]",
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            },
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', parameters('storageAccountName'), 'default', parameters('ticketsTableName'))]",
+              "name": "[guid(resourceId('Microsoft.Storage/storageAccounts/tableServices/tables', parameters('storageAccountName'), 'default', parameters('ticketsTableName')), parameters('principalId'), 'storage-tickets-table-data-contributor')]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')]",
                 "principalId": "[parameters('principalId')]",
                 "principalType": "ServicePrincipal"
               }
@@ -779,8 +862,8 @@
           "metadata": {
             "_generator": {
               "name": "bicep",
-              "version": "0.46.1.21595",
-              "templateHash": "3389061240463844542"
+              "version": "0.43.8.12551",
+              "templateHash": "11394562150484814126"
             }
           },
           "parameters": {

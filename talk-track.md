@@ -9,7 +9,7 @@
 1. Open `infra/modules/rbac.bicep`.
 2. Point to:
    - Key Vault Secrets User
-   - Storage Blob Data Reader
+   - Storage Table Data Contributor scoped to the tables the app uses
 3. Say: "One narrow data-plane role per dependency, scoped to that resource."
 4. Say: "Contributor is control-plane and would not read data here."
 

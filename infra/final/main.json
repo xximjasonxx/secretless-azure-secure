@@ -4,8 +4,8 @@
   "metadata": {
     "_generator": {
       "name": "bicep",
-      "version": "0.46.1.21595",
-      "templateHash": "1566864235540315060"
+      "version": "0.43.8.12551",
+      "templateHash": "15420126422799585828"
     }
   },
   "parameters": {
@@ -105,13 +105,6 @@
     {
       "type": "Microsoft.Network/privateDnsZones",
       "apiVersion": "2024-06-01",
-      "name": "privatelink.vaultcore.azure.net",
-      "location": "global",
-      "tags": "[variables('normalizedTags')]"
-    },
-    {
-      "type": "Microsoft.Network/privateDnsZones",
-      "apiVersion": "2024-06-01",
       "name": "[format('privatelink.table.{0}', environment().suffixes.storage)]",
       "location": "global",
       "tags": "[variables('normalizedTags')]"
@@ -130,22 +123,6 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]"
-      ]
-    },
-    {
-      "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
-      "apiVersion": "2024-06-01",
-      "name": "[format('{0}/{1}', 'privatelink.vaultcore.azure.net', format('link-{0}', parameters('vnetName')))]",
-      "location": "global",
-      "tags": "[variables('normalizedTags')]",
-      "properties": {
-        "registrationEnabled": false,
-        "virtualNetwork": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]"
-        }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
       ]
     },
     {
@@ -238,33 +215,6 @@
     {
       "type": "Microsoft.Network/privateEndpoints",
       "apiVersion": "2024-05-01",
-      "name": "[format('pe-kv-{0}', take(uniqueString(resourceGroup().id, parameters('keyVaultName')), 6))]",
-      "location": "[parameters('location')]",
-      "tags": "[variables('normalizedTags')]",
-      "properties": {
-        "subnet": {
-          "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('vnetName'), variables('privateEndpointSubnetName'))]"
-        },
-        "privateLinkServiceConnections": [
-          {
-            "name": "kv-connection",
-            "properties": {
-              "privateLinkServiceId": "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]",
-              "groupIds": [
-                "vault"
-              ],
-              "requestMessage": "Step2 private endpoint for Key Vault."
-            }
-          }
-        ]
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.KeyVault/vaults', parameters('keyVaultName'))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Network/privateEndpoints",
-      "apiVersion": "2024-05-01",
       "name": "[format('pe-table-{0}', take(uniqueString(resourceGroup().id, parameters('storageAccountName')), 6))]",
       "location": "[parameters('location')]",
       "tags": "[variables('normalizedTags')]",
@@ -304,26 +254,6 @@
         "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.azurewebsites.net')]",
         "[resourceId('Microsoft.Network/privateEndpoints', format('pe-app-{0}', take(uniqueString(resourceGroup().id, parameters('appName')), 6)))]",
         "[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', 'privatelink.azurewebsites.net', format('link-{0}', parameters('vnetName')))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
-      "apiVersion": "2024-05-01",
-      "name": "[format('{0}/{1}', format('pe-kv-{0}', take(uniqueString(resourceGroup().id, parameters('keyVaultName')), 6)), 'default')]",
-      "properties": {
-        "privateDnsZoneConfigs": [
-          {
-            "name": "kv-zone",
-            "properties": {
-              "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]"
-            }
-          }
-        ]
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Network/privateDnsZones', 'privatelink.vaultcore.azure.net')]",
-        "[resourceId('Microsoft.Network/privateEndpoints', format('pe-kv-{0}', take(uniqueString(resourceGroup().id, parameters('keyVaultName')), 6)))]",
-        "[resourceId('Microsoft.Network/privateDnsZones/virtualNetworkLinks', 'privatelink.vaultcore.azure.net', format('link-{0}', parameters('vnetName')))]"
       ]
     },
     {

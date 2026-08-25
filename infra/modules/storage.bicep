@@ -15,6 +15,12 @@ var normalizedTags = union(tags, {
 @description('Blob container name used by the demo app.')
 param containerName string = 'democontainer'
 
+@description('Azure Table name for asset comments.')
+param commentsTableName string = 'assetcomments'
+
+@description('Azure Table name for asset tickets.')
+param ticketsTableName string = 'assettickets'
+
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: name
   location: location
@@ -53,6 +59,23 @@ resource demoContainer 'Microsoft.Storage/storageAccounts/blobServices/container
   }
 }
 
+resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' = {
+  parent: storageAccount
+  name: 'default'
+}
+
+resource commentsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: tableService
+  name: commentsTableName
+}
+
+resource ticketsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' = {
+  parent: tableService
+  name: ticketsTableName
+}
+
 output storageAccountId string = storageAccount.id
 output storageAccountName string = storageAccount.name
 output storageBlobUri string = 'https://${storageAccount.name}.blob.${environment().suffixes.storage}/'
+output commentsTableId string = commentsTable.id
+output ticketsTableId string = ticketsTable.id

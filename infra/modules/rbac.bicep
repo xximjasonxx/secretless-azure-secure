@@ -9,12 +9,33 @@ param keyVaultName string
 @description('Name of the target Storage account.')
 param storageAccountName string
 
+@description('Name of the comments table.')
+param commentsTableName string = 'assetcomments'
+
+@description('Name of the tickets table.')
+param ticketsTableName string = 'assettickets'
+
 resource keyVault 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: keyVaultName
 }
 
 resource storageAccount 'Microsoft.Storage/storageAccounts@2023-05-01' existing = {
   name: storageAccountName
+}
+
+resource tableService 'Microsoft.Storage/storageAccounts/tableServices@2023-05-01' existing = {
+  parent: storageAccount
+  name: 'default'
+}
+
+resource commentsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' existing = {
+  parent: tableService
+  name: commentsTableName
+}
+
+resource ticketsTable 'Microsoft.Storage/storageAccounts/tableServices/tables@2023-05-01' existing = {
+  parent: tableService
+  name: ticketsTableName
 }
 
 resource keyVaultSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
@@ -30,14 +51,25 @@ resource keyVaultSecretsUserAssignment 'Microsoft.Authorization/roleAssignments@
   }
 }
 
-resource storageBlobDataReaderAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, principalId, 'storage-blob-data-reader')
-  scope: storageAccount
+resource commentsTableDataContributorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(commentsTable.id, principalId, 'storage-comments-table-data-contributor')
+  scope: commentsTable
   properties: {
-    // Storage Blob Data Reader (2a2b9908-6ea1-4ae2-8e65-a410df84e7d1):
-    // minimum data-plane role to read hello.txt from democontainer.
-    // Important: control-plane Contributor DOES NOT grant blob data read permissions.
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1')
+    // Storage Table Data Contributor (0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3):
+    // table data access is limited to the comments table resource.
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
+    principalId: principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource ticketsTableDataContributorAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(ticketsTable.id, principalId, 'storage-tickets-table-data-contributor')
+  scope: ticketsTable
+  properties: {
+    // Storage Table Data Contributor (0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3):
+    // table data access is limited to the tickets table resource.
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3')
     principalId: principalId
     principalType: 'ServicePrincipal'
   }

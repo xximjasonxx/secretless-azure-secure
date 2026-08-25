@@ -80,6 +80,8 @@ module storage './modules/storage.bicep' = {
     location: location
     tags: tags
     containerName: 'democontainer'
+    commentsTableName: 'assetcomments'
+    ticketsTableName: 'assettickets'
   }
   dependsOn: [
     rg
@@ -111,9 +113,13 @@ module rbac './modules/rbac.bicep' = {
     principalId: app.outputs.appPrincipalId
     keyVaultName: keyVault.outputs.keyVaultName
     storageAccountName: storage.outputs.storageAccountName
+    commentsTableName: 'assetcomments'
+    ticketsTableName: 'assettickets'
   }
   dependsOn: [
     rg
+    app
+    storage
   ]
 }
 

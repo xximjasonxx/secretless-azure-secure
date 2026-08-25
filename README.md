@@ -81,7 +81,7 @@ If the Asset API Container App is recreated and receives a different ingress hos
 
 The final deployment provisions the base resources, deploys the client, then applies full hardening:
 
-- Storage MI/RBAC configuration (`Storage Table Data Contributor`)
+- Storage MI/RBAC configuration (`Storage Table Data Contributor` scoped to the `assetcomments` and `assettickets` tables)
 - Key Vault creation and secret seeding (`AssetServiceApiKey`)
 - Key Vault RBAC:
   - `Key Vault Administrator` to `KEYVAULT_ADMIN_OBJECT_ID` (defaults to current Azure CLI principal)
@@ -113,4 +113,4 @@ ASSET_SERVICE_API_KEY_VALUE='<actual-key>' azd up
 - `infra/final` now also supports re-running `azd up` from outside the private network without that override; if the existing Key Vault secret cannot be read, the deploy preserves the current secret value instead of failing.
 - `infra/final` uses a custom `up` workflow with supported `azd` steps, plus hooks: `prepare-deploy.sh` runs at `predeploy` to reopen App Service only when needed, and `apply.sh` runs at `postdeploy` to re-apply final hardening.
 
-- `final` exposes Application Gateway over HTTP for demo simplicity; add TLS listener/certificate before production use.
+- `final` exposes Application Gateway over HTTPS using a runtime-generated self-signed demo certificate. Browsers will show a certificate warning.

@@ -3,6 +3,8 @@ set -euo pipefail
 
 STAGE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$STAGE_DIR/../.." && pwd)"
+CERT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/secureapp-gateway-cert.XXXXXX")"
+trap 'rm -rf -- "$CERT_DIR"' EXIT
 
 is_invalid_env_value() {
   local value="${1:-}"
@@ -106,6 +108,27 @@ ensure_role_assignment() {
     -o none
 }
 
+remove_role_assignment_at_scope() {
+  local role_name="$1"
+  local scope="$2"
+  local principal_id="$3"
+  local assignment_ids
+  local assignment_id
+
+  assignment_ids="$(az role assignment list \
+    --assignee-object-id "$principal_id" \
+    --scope "$scope" \
+    --query "[?roleDefinitionName=='$role_name'] | [].id" \
+    -o tsv)"
+
+  while IFS= read -r assignment_id; do
+    if [[ -n "$assignment_id" ]]; then
+      echo "Removing obsolete role assignment: $role_name at $scope"
+      az role assignment delete --ids "$assignment_id" --only-show-errors -o none
+    fi
+  done <<< "$assignment_ids"
+}
+
 ensure_custom_role_definition() {
   local role_name="Mission Control App Settings Reader"
   local role_definition_id="bae9b1f4-d2b2-44a0-b0d0-7ea87980d935"
@@ -116,8 +139,8 @@ ensure_custom_role_definition() {
   local updated_role_definition
 
   existing_role_name="$(az role definition list \
-    --name "$role_name" \
-    --query "[0].roleName" \
+    --custom-role-only true \
+    --query "[?roleName=='$role_name'] | [0].roleName" \
     -o tsv 2>/dev/null || true)"
 
   if [[ -z "$existing_role_name" ]]; then
@@ -262,7 +285,17 @@ if ! APP_PRINCIPAL_ID="$(az webapp identity assign \
 fi
 
 ST_SCOPE="$(az storage account show --resource-group "$RG" --name "$STORAGE_NAME" --query id -o tsv)"
-ensure_role_assignment "Storage Table Data Contributor" "$ST_SCOPE" "$APP_PRINCIPAL_ID"
+TABLE_SERVICE_SCOPE="${ST_SCOPE}/tableServices/default"
+COMMENTS_TABLE_SCOPE="${TABLE_SERVICE_SCOPE}/tables/${COMMENTS_TABLE}"
+TICKETS_TABLE_SCOPE="${TABLE_SERVICE_SCOPE}/tables/${TICKETS_TABLE}"
+
+# Remove legacy account-scoped assignments left by earlier incremental deployments.
+remove_role_assignment_at_scope "Storage Account Contributor" "$ST_SCOPE" "$APP_PRINCIPAL_ID"
+remove_role_assignment_at_scope "Storage Table Data Contributor" "$ST_SCOPE" "$APP_PRINCIPAL_ID"
+remove_role_assignment_at_scope "Storage Blob Data Reader" "$ST_SCOPE" "$APP_PRINCIPAL_ID"
+
+ensure_role_assignment "Storage Table Data Contributor" "$COMMENTS_TABLE_SCOPE" "$APP_PRINCIPAL_ID"
+ensure_role_assignment "Storage Table Data Contributor" "$TICKETS_TABLE_SCOPE" "$APP_PRINCIPAL_ID"
 TABLES_URI="https://${STORAGE_NAME}.table.core.windows.net/"
 
 if [[ -z "$KEYVAULT_ADMIN_OBJECT_ID" ]]; then
@@ -318,7 +351,8 @@ if [[ "$ASSET_SERVICE_API_KEY_VALUE" =~ $KEYVAULT_REF_REGEX ]]; then
 fi
 
 if [[ "$PRESERVE_EXISTING_KEYVAULT_SECRET" != "true" && -z "$ASSET_SERVICE_API_KEY_VALUE" ]]; then
-  ASSET_SERVICE_API_KEY_VALUE="demo-insecure-api-key"
+  ASSET_SERVICE_API_KEY_VALUE="demo-$(openssl rand -hex 24)"
+  echo "No Asset API key supplied; generated a runtime-only demo value for Key Vault reference validation."
 fi
 
 DEPLOY_PARAMS=(
@@ -365,6 +399,23 @@ fi
 KEYVAULT_SCOPE="$(az keyvault show --resource-group "$RG" --name "$KEYVAULT_NAME" --query id -o tsv)"
 APP_SCOPE="$(az webapp show --resource-group "$RG" --name "$APP_NAME" --query id -o tsv)"
 RG_SCOPE="$(az group show --name "$RG" --query id -o tsv)"
+
+KEYVAULT_PRIVATE_ENDPOINT_NAMES="$(az network private-endpoint list \
+  --resource-group "$RG" \
+  --query "[?privateLinkServiceConnections[0].privateLinkServiceId=='$KEYVAULT_SCOPE'] | [].name" \
+  -o tsv 2>/dev/null || true)"
+KEEP_KEYVAULT_PRIVATE_ENDPOINT_NAME="$(printf '%s\n' "$KEYVAULT_PRIVATE_ENDPOINT_NAMES" | sed '/^$/d' | head -n 1)"
+while IFS= read -r key_vault_private_endpoint_name; do
+  if [[ -n "$key_vault_private_endpoint_name" && "$key_vault_private_endpoint_name" != "$KEEP_KEYVAULT_PRIVATE_ENDPOINT_NAME" ]]; then
+    echo "Removing obsolete duplicate Key Vault private endpoint: $key_vault_private_endpoint_name"
+    az network private-endpoint delete \
+      --resource-group "$RG" \
+      --name "$key_vault_private_endpoint_name" \
+      --only-show-errors \
+      -o none
+  fi
+done <<< "$KEYVAULT_PRIVATE_ENDPOINT_NAMES"
+
 APP_SETTINGS_READER_ROLE_NAME="$(ensure_custom_role_definition "$RG_SCOPE")"
 ensure_role_assignment "Key Vault Administrator" "$KEYVAULT_SCOPE" "$KEYVAULT_ADMIN_OBJECT_ID" "$KEYVAULT_ADMIN_PRINCIPAL_TYPE"
 ensure_role_assignment "Key Vault Secrets User" "$KEYVAULT_SCOPE" "$APP_PRINCIPAL_ID" ServicePrincipal
@@ -423,6 +474,22 @@ if [[ -z "$EXISTING_APP_GATEWAY" ]]; then
 
 fi
 
+HTTPS_FRONTEND_PORT_NAME="$(az network application-gateway frontend-port list \
+  --resource-group "$RG" \
+  --gateway-name "$APP_GATEWAY_NAME" \
+  --query '[?port==`443`] | [0].name' \
+  -o tsv 2>/dev/null || true)"
+if [[ -z "$HTTPS_FRONTEND_PORT_NAME" ]]; then
+  HTTPS_FRONTEND_PORT_NAME="appGatewayHttpsFrontendPort"
+  az network application-gateway frontend-port create \
+    --resource-group "$RG" \
+    --gateway-name "$APP_GATEWAY_NAME" \
+    --name "$HTTPS_FRONTEND_PORT_NAME" \
+    --port 443 \
+    --only-show-errors \
+    -o none
+fi
+
 # App Service requires its hostname for both the Host header and TLS SNI.
 az network application-gateway http-settings update \
   --resource-group "$RG" \
@@ -474,7 +541,62 @@ az webapp config appsettings set \
   --only-show-errors \
   -o none
 
-APP_GATEWAY_URL="http://${APP_GATEWAY_HOST}"
+APP_GATEWAY_CERT_NAME="appGatewayDemoCert"
+APP_GATEWAY_CERT_PASSWORD="$(openssl rand -hex 24)"
+openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+  -keyout "$CERT_DIR/gateway.key" \
+  -out "$CERT_DIR/gateway.crt" \
+  -days 365 \
+  -subj "/CN=${APP_GATEWAY_HOST}" \
+  -addext "subjectAltName=DNS:${APP_GATEWAY_HOST}" \
+  -quiet
+openssl pkcs12 -export \
+  -out "$CERT_DIR/gateway.pfx" \
+  -inkey "$CERT_DIR/gateway.key" \
+  -in "$CERT_DIR/gateway.crt" \
+  -passout "pass:${APP_GATEWAY_CERT_PASSWORD}" \
+  -name "$APP_GATEWAY_CERT_NAME"
+
+EXISTING_APP_GATEWAY_CERT="$(az network application-gateway ssl-cert list \
+  --resource-group "$RG" \
+  --gateway-name "$APP_GATEWAY_NAME" \
+  --query "[?name=='${APP_GATEWAY_CERT_NAME}'] | [0].name" \
+  -o tsv 2>/dev/null || true)"
+if [[ -n "$EXISTING_APP_GATEWAY_CERT" ]]; then
+  az network application-gateway ssl-cert update \
+    --resource-group "$RG" \
+    --gateway-name "$APP_GATEWAY_NAME" \
+    --name "$APP_GATEWAY_CERT_NAME" \
+    --cert-file "$CERT_DIR/gateway.pfx" \
+    --cert-password "$APP_GATEWAY_CERT_PASSWORD" \
+    --only-show-errors \
+    -o none
+else
+  az network application-gateway ssl-cert create \
+    --resource-group "$RG" \
+    --gateway-name "$APP_GATEWAY_NAME" \
+    --name "$APP_GATEWAY_CERT_NAME" \
+    --cert-file "$CERT_DIR/gateway.pfx" \
+    --cert-password "$APP_GATEWAY_CERT_PASSWORD" \
+    --only-show-errors \
+    -o none
+fi
+
+APP_GATEWAY_LISTENER_NAME="$(az network application-gateway http-listener list \
+  --resource-group "$RG" \
+  --gateway-name "$APP_GATEWAY_NAME" \
+  --query "[0].name" \
+  -o tsv)"
+az network application-gateway http-listener update \
+  --resource-group "$RG" \
+  --gateway-name "$APP_GATEWAY_NAME" \
+  --name "$APP_GATEWAY_LISTENER_NAME" \
+  --frontend-port "$HTTPS_FRONTEND_PORT_NAME" \
+  --ssl-cert "$APP_GATEWAY_CERT_NAME" \
+  --only-show-errors \
+  -o none
+
+APP_GATEWAY_URL="https://${APP_GATEWAY_HOST}"
 azd env set APP_GATEWAY_URL "$APP_GATEWAY_URL" --cwd "$STAGE_DIR" >/dev/null
 azd env set API_URL "$APP_GATEWAY_URL" --cwd "$STAGE_DIR" >/dev/null
 if [[ -n "$APP_GATEWAY_FQDN" ]]; then
