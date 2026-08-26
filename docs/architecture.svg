@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="180 0 1120 640" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#444" />
+    </marker>
+  </defs>
+
+  <rect width="1300" height="640" fill="#ffffff" />
+
+  <!-- Internet / User (top, centered over Application Gateway) -->
+  <rect x="250" y="20" width="160" height="70" rx="8" fill="#f2f2f2" stroke="#888" stroke-width="2" />
+  <text x="330" y="50" text-anchor="middle" font-size="17" font-weight="bold">Internet</text>
+  <text x="330" y="70" text-anchor="middle" font-size="13" fill="#555">User / Browser</text>
+
+  <!-- VNet boundary: wide, short, hugs the content rows -->
+  <rect x="200" y="130" width="1080" height="420" rx="10" fill="none" stroke="#0072C6" stroke-width="2.5" stroke-dasharray="8,5" />
+  <text x="220" y="156" font-size="16" font-weight="bold" fill="#0072C6">VNet: vnet-centralus-5zipyz (10.42.0.0/16)</text>
+
+  <!-- snet-appgw -->
+  <rect x="220" y="170" width="220" height="360" rx="8" fill="#e8f2fb" stroke="#0072C6" stroke-width="2" />
+  <text x="330" y="192" text-anchor="middle" font-size="13" font-weight="bold" fill="#0072C6">snet-appgw</text>
+  <text x="330" y="208" text-anchor="middle" font-size="11" fill="#0072C6">(10.42.3.0/24)</text>
+  <rect x="235" y="310" width="190" height="120" rx="6" fill="#ffffff" stroke="#0072C6" stroke-width="2" />
+  <text x="330" y="334" text-anchor="middle" font-size="15" font-weight="bold">Application</text>
+  <text x="330" y="352" text-anchor="middle" font-size="15" font-weight="bold">Gateway</text>
+  <text x="330" y="374" text-anchor="middle" font-size="11.5" fill="#555">HTTPS listener (443,</text>
+  <text x="330" y="388" text-anchor="middle" font-size="11.5" fill="#555">self-signed)</text>
+  <text x="330" y="406" text-anchor="middle" font-size="10.5" fill="#777">Public IP + FQDN</text>
+
+  <!-- snet-app -->
+  <rect x="460" y="170" width="220" height="360" rx="8" fill="#e8f2fb" stroke="#0072C6" stroke-width="2" />
+  <text x="570" y="192" text-anchor="middle" font-size="13" font-weight="bold" fill="#0072C6">snet-app</text>
+  <text x="570" y="208" text-anchor="middle" font-size="11" fill="#0072C6">(10.42.1.0/24)</text>
+  <rect x="475" y="310" width="190" height="120" rx="6" fill="#ffffff" stroke="#0072C6" stroke-width="2" />
+  <text x="570" y="340" text-anchor="middle" font-size="15" font-weight="bold">App Service</text>
+  <text x="570" y="362" text-anchor="middle" font-size="11.5" fill="#555">System-Assigned</text>
+  <text x="570" y="378" text-anchor="middle" font-size="11.5" fill="#555">Managed Identity</text>
+  <text x="570" y="398" text-anchor="middle" font-size="10.5" fill="#777">VNet-integrated outbound</text>
+
+  <!-- snet-pe (wraps three PE boxes) -->
+  <rect x="700" y="170" width="560" height="360" rx="8" fill="#eef7ee" stroke="#2e7d32" stroke-width="2" />
+  <text x="980" y="192" text-anchor="middle" font-size="13" font-weight="bold" fill="#2e7d32">snet-pe (10.42.2.0/24) &#8211; Private Endpoints</text>
+
+  <!-- Key Vault (compact box, fits title + PE pill) -->
+  <rect x="715" y="215" width="170" height="105" rx="8" fill="#ffffff" stroke="#2e7d32" stroke-width="2" />
+  <text x="800" y="240" text-anchor="middle" font-size="14" font-weight="bold">Key Vault</text>
+  <rect x="728" y="255" width="144" height="26" rx="4" fill="#eef7ee" stroke="#2e7d32" stroke-width="1.5" />
+  <text x="800" y="272" text-anchor="middle" font-size="10.5" font-weight="bold">Private Endpoint</text>
+  <text x="800" y="300" text-anchor="middle" font-size="9.5" fill="#777">Public access: Disabled</text>
+
+  <!-- Storage (compact box) -->
+  <rect x="895" y="215" width="170" height="105" rx="8" fill="#ffffff" stroke="#2e7d32" stroke-width="2" />
+  <text x="980" y="240" text-anchor="middle" font-size="14" font-weight="bold">Storage Account</text>
+  <rect x="908" y="255" width="144" height="26" rx="4" fill="#eef7ee" stroke="#2e7d32" stroke-width="1.5" />
+  <text x="980" y="272" text-anchor="middle" font-size="10.5" font-weight="bold">Private Endpoint</text>
+  <text x="980" y="300" text-anchor="middle" font-size="9.5" fill="#777">Tables: comments, tickets</text>
+
+  <!-- App Service Inbound PE (compact box) -->
+  <rect x="1075" y="215" width="170" height="105" rx="8" fill="#ffffff" stroke="#2e7d32" stroke-width="2" />
+  <text x="1160" y="240" text-anchor="middle" font-size="14" font-weight="bold">App Service</text>
+  <rect x="1088" y="255" width="144" height="26" rx="4" fill="#eef7ee" stroke="#2e7d32" stroke-width="1.5" />
+  <text x="1160" y="272" text-anchor="middle" font-size="10.5" font-weight="bold">Private Endpoint</text>
+  <text x="1160" y="300" text-anchor="middle" font-size="9.5" fill="#777">Inbound access only</text>
+
+  <!-- Legend (below VNet, clear of dashed border) -->
+  <rect x="220" y="565" width="18" height="18" fill="#e8f2fb" stroke="#0072C6" stroke-width="2" />
+  <text x="246" y="579" font-size="13" fill="#333">Compute / Network subnet</text>
+  <rect x="460" y="565" width="18" height="18" fill="#eef7ee" stroke="#2e7d32" stroke-width="2" />
+  <text x="486" y="579" font-size="13" fill="#333">Private endpoint subnet</text>
+
+  <!-- Straight, right-angle connectors, all aligned to box centers -->
+  <!-- Internet -> Application Gateway: straight vertical, both centered at x=330 -->
+  <line x1="330" y1="90" x2="330" y2="310" stroke="#444" stroke-width="2.5" marker-end="url(#arrow)" />
+
+  <!-- Application Gateway -> App Service: straight horizontal, both centered at y=370 -->
+  <line x1="425" y1="370" x2="475" y2="370" stroke="#444" stroke-width="2.5" marker-end="url(#arrow)" />
+
+  <!-- App Service -> Key Vault / Storage / App Service PE:
+       drop from App Service bottom, run below the PE row, then rise up
+       and touch each Private Endpoint box on its bottom edge -->
+  <polyline points="665,355 800,355 800,320" fill="none" stroke="#444" stroke-width="2.5" marker-end="url(#arrow)" />
+  <polyline points="665,375 980,375 980,320" fill="none" stroke="#444" stroke-width="2.5" marker-end="url(#arrow)" />
+  <polyline points="665,395 1160,395 1160,320" fill="none" stroke="#444" stroke-width="2.5" marker-end="url(#arrow)" />
+</svg>
