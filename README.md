@@ -39,7 +39,7 @@ infra/
 
 ```bash
 az login
-azd auth login
+azd config set auth.useAzCliAuth true
 ```
 
 The repository has one azd deployment project: `infra/final`.
@@ -51,8 +51,47 @@ Default environments:
 
 ## Deployment
 
+Before deploying, select your subscription with `az account set --subscription <subscription-id>`.
+In `infra/final`, create an environment with `azd env new <environment-name>` on first use,
+or select an existing one with `azd env select <environment-name>`. Use a separate environment
+when targeting a different subscription so previous resource names and deployment outputs are not reused.
+
+Synchronize the selected azd environment with the subscription currently selected in Azure CLI:
+
 ```bash
 cd infra/final
+SUBSCRIPTION_ID="$(az account show --query id -o tsv)" &&
+azd env set AZURE_SUBSCRIPTION_ID "$SUBSCRIPTION_ID"
+
+# Confirm the deployment target before proceeding.
+az account show --query '{name:name,id:id}' -o json
+azd env get-value AZURE_SUBSCRIPTION_ID
+```
+
+`azd` saves `AZURE_SUBSCRIPTION_ID` per environment; changing the active Azure CLI subscription
+does not update it automatically. Repeat the synchronization whenever you change subscriptions.
+Using Azure CLI authentication shares credentials, not the environment's deployment target.
+This prevents a saved environment from targeting a subscription you no longer have access to.
+
+Create the target resource group manually before running `azd up`, using either Azure CLI
+or the Azure Portal. The template expects an existing resource group. For Azure CLI,
+replace the example name and region with your intended values, then configure the selected azd environment:
+
+```bash
+RESOURCE_GROUP="rg-secureapp-demo"
+LOCATION="centralus"
+
+az group create \
+  --subscription "$SUBSCRIPTION_ID" \
+  --name "$RESOURCE_GROUP" \
+  --location "$LOCATION" &&
+azd env set AZURE_RESOURCE_GROUP "$RESOURCE_GROUP" &&
+azd env set AZURE_LOCATION "$LOCATION"
+```
+
+Then, from `infra/final`, deploy:
+
+```bash
 azd up
 APP_GATEWAY_URL=$(azd env get-value APP_GATEWAY_URL)
 curl -sS "$APP_GATEWAY_URL/health"
